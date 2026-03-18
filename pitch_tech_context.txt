@@ -1,0 +1,186 @@
+=== DATABASE SCHEMA ===
+
+-- Enable the pgvector extension
+create extension if not exists vector;
+
+-- ============================================================
+-- Clean slate: drop everything first so this script is idempotent
+-- ============================================================
+drop function if exists match_document_chunks;
+
+drop policy if exists "Public can read chunks for indexed documents" on public.document_chunks;
+drop policy if exists "Authenticated users can do all"               on public.document_chunks;
+drop table if exists public.document_chunks;
+
+drop policy if exists "Public can read indexed documents"  on public.documents;
+drop policy if exists "Authenticated users can do all"     on public.documents;
+drop table if exists public.documents;
+
+drop policy if exists "Public can insert search queries"   on public.search_queries;
+drop policy if exists "Authenticated users can read queries" on public.search_queries;
+drop table if exists public.search_queries;
+
+drop policy if exists "Public can read documents"           on storage.objects;
+drop policy if exists "Authenticated users can upload"      on storage.objects;
+drop policy if exists "Authenticated users can update"      on storage.objects;
+drop policy if exists "Authenticated users can delete"      on storage.objects;
+-- Note: storage buckets cannot be deleted via SQL. If the bucket already exists this is a no-op.
+
+-- ============================================================
+-- 1. Documents table
+-- ============================================================
+create table public.documents (
+  id uuid primary key default gen_random_uuid(),
+  title text not null,
+  description text,
+  category text not null,
+  file_url text not null,
+  status text not null default 'processing', -- processing | indexed | error
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+alter table public.documents enable row level security;
+create policy "Public can read indexed documents" on public.documents
+  for select using (status = 'indexed');
+create policy "Authenticated users can do all" on public.documents
+  for all using (auth.role() = 'authenticated');
+
+-- ============================================================
+-- 2. Document chunks table (384 dims for HuggingFace all-MiniLM-L6-v2)
+-- ============================================================
+create table public.document_chunks (
+  id uuid primary key default gen_random_uuid(),
+  document_id uuid references public.documents on delete cascade not null,
+  content text not null,
+  embedding vector(384)
+);
+
+alter table public.document_chunks enable row level security;
+create policy "Public can read chunks for indexed documents" on public.document_chunks
+  for select using (
+    exists (
+      select 1 from public.documents
+      where id = document_chunks.document_id
+        and status = 'indexed'
+    )
+  );
+create policy "Authenticated users can do all" on public.document_chunks
+  for all using (auth.role() = 'authenticated');
+
+-- ============================================================
+-- 3. Search queries table  (analytics)
+-- ============================================================
+create table public.search_queries (
+  id uuid primary key default gen_random_uuid(),
+  query text not null,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+alter table public.search_queries enable row level security;
+create policy "Public can insert search queries" on public.search_queries
+  for insert with check (true);
+create policy "Authenticated users can read queries" on public.search_queries
+  for select using (auth.role() = 'authenticated');
+
+-- ============================================================
+-- 4. pgvector similarity-search function
+-- ============================================================
+create or replace function match_document_chunks (
+  query_embedding vector(384),
+  match_count int default 5,
+  category_filter text default null
+) returns table (
+  id uuid,
+  document_id uuid,
+  content text,
+  similarity float
+)
+language plpgsql
+as $$
+begin
+  return query
+  select
+    dc.id,
+    dc.document_id,
+    dc.content,
+    1 - (dc.embedding <=> query_embedding) as similarity
+  from public.document_chunks dc
+  join public.documents d on d.id = dc.document_id
+  where d.status = 'indexed'
+    and (category_filter is null or d.category = category_filter)
+  order by dc.embedding <=> query_embedding
+  limit match_count;
+end;
+$$;
+
+-- ============================================================
+-- 5. Storage bucket for uploaded files (safe to run if it already exists)
+-- ============================================================
+insert into storage.buckets (id, name, public)
+values ('documents', 'documents', true)
+on conflict (id) do nothing;
+
+create policy "Public can read documents"      on storage.objects for select using (bucket_id = 'documents');
+create policy "Authenticated users can upload" on storage.objects for insert with check (bucket_id = 'documents' and auth.role() = 'authenticated');
+create policy "Authenticated users can update" on storage.objects for update using (bucket_id = 'documents' and auth.role() = 'authenticated');
+create policy "Authenticated users can delete" on storage.objects for delete using (bucket_id = 'documents' and auth.role() = 'authenticated');
+
+
+=== AI SYSTEM PROMPT ===
+
+        const prompt = `You are an authoritative school information assistant. You answer questions with absolute confidence based on the official school documents provided.
+
+RULES:
+- Answer ONLY from the provided document context. NEVER make up information.
+- Be SPECIFIC and DETAILED. Include exact policies, numbers, dates, requirements, and consequences when they appear in the context.
+- Use bullet points (- item) and numbered lists (1. item) extensively by default for readability.
+- Use **bold** for key terms, policy names, and important details.
+- Structure long answers with clear headings (## Heading) when appropriate.
+- Speak definitively: say "The policy states..." or "According to the handbook..." instead of vague phrases like "it could be" or "it may lead to".
+- If the context contains specific consequences, penalties, or requirements, LIST ALL OF THEM.
+- If the information is not in the context, say exactly: "This information is not covered in the uploaded school documents."
+
+Document Context:
+${contextText}
+
+Student Question:
+${queryText}`;
+
+        try {
+          // Use Puter.js to generate the answer for free
+          if (typeof window !== "undefined" && window.puter) {
+
+
+=== AI PROCESSING PIPELINE ===
+
+        batch.map(chunkText => hf.featureExtraction({
+          model: 'sentence-transformers/all-MiniLM-L6-v2',
+          inputs: chunkText,
+        }))
+      );
+
+      const chunkRecords = batch.map((chunkText, idx) => ({
+        document_id: documentId,
+        content: chunkText,
+        // @ts-ignore
+        embedding: embeddings[idx],
+      }));
+
+      const { error: insertError } = await supabase.from('document_chunks').insert(chunkRecords);
+      if (insertError) throw insertError;
+      
+      console.log(`[process-doc] Inserted batch ${Math.floor(i/5) + 1}`);
+    }
+
+    // 4. Update parent document status
+    await supabase.from('documents').update({ status: 'indexed' }).eq('id', documentId);
+    console.log(`[process-doc] Document ${documentId} indexed successfully`);
+
+    return NextResponse.json({ success: true, processedChunks: chunks.length });
+  } catch (error: any) {
+    console.error('[process-doc] Error:', error);
+    // Always try to mark the document as errored
+    if (documentId) {
+      try {
+        const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SECRET_KEY!);
+        await supabase.from('documents').update({ status: 'error' }).eq('id', documentId);
