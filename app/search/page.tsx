@@ -25,6 +25,12 @@ declare global {
 const MAX_INPUT_LENGTH = 1000;
 const SANITIZE_PATTERN = /[<>{}]/g;
 
+// 🧠 AI Configuration - Easy Reversion
+// Primary: For final answers (Reasoning & Detail)
+// Fast: For quick internal tasks (Translation)
+const AI_MODEL_PRIMARY = "claude-3-5-sonnet"; 
+const AI_MODEL_FAST = "gpt-4o-mini";
+
 // Sanitize user input to prevent XSS
 function sanitizeInput(input: string): string {
   return input
@@ -100,7 +106,7 @@ function SearchContent() {
         try {
           const translationResponse = await window.puter.ai.chat(
             `Translate this school-related question into a concise English search query for a document database. Just provide the English translation, nothing else.\n\nQuestion: ${queryText}`,
-            { model: 'gpt-4o-mini' }
+            { model: AI_MODEL_FAST }
           );
           if (translationResponse?.toString()) {
             searchQuery = translationResponse.toString().trim();
@@ -167,7 +173,7 @@ ${queryText}`;
           if (typeof window !== "undefined" && window.puter) {
              // 1. Start streaming from Puter.js
              const aiResponse = await window.puter.ai.chat(prompt, { 
-               model: 'gpt-4o-mini',
+               model: AI_MODEL_PRIMARY,
                stream: true 
              });
 
