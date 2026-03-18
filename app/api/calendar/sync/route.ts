@@ -10,12 +10,24 @@ export async function POST(req: Request) {
 
     // 1. Fetch the school calendar .ics
     const CALENDAR_URL = 'https://www.dis.sc.kr/calendar/calendar_354_gmt.ics';
-    const response = await fetch(CALENDAR_URL);
+    console.log('[CALENDAR_SYNC] Fetching from:', CALENDAR_URL);
+    
+    const response = await fetch(CALENDAR_URL, {
+      headers: { 'User-Agent': 'DIS-Info-Hub-Sync-Service' },
+      next: { revalidate: 0 } // Ensure no cache
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch calendar: ${response.status} ${response.statusText}`);
+    }
+
     const icsContent = await response.text();
+    console.log('[CALENDAR_SYNC] Received ICS content, length:', icsContent.length);
 
     // 2. Parse the .ics content
     const events = ical.parseICS(icsContent);
     const eventArray = [];
+    console.log('[CALENDAR_SYNC] Parsing ICS components...');
 
     for (const key in events) {
       if (events.hasOwnProperty(key)) {
@@ -37,13 +49,14 @@ export async function POST(req: Request) {
       }
     }
 
+    console.log('[CALENDAR_SYNC] Found VEVENTS:', eventArray.length);
+
     if (eventArray.length === 0) {
-      return NextResponse.json({ message: 'No events found in feed' });
+      return NextResponse.json({ message: 'No events found in feed', success: false });
     }
 
     // 3. Upsert into Supabase (Deduplication)
-    // We'll use a combination of title and start_time for deduplication if UID isn't available
-    // For simplicity, we just clear and re-insert for the 'school' source
+    console.log('[CALENDAR_SYNC] Clearing old school events...');
     const { error: deleteError } = await supabase
       .from('calendar_events')
       .delete()
@@ -51,12 +64,14 @@ export async function POST(req: Request) {
 
     if (deleteError) throw deleteError;
 
+    console.log('[CALENDAR_SYNC] Inserting new events...');
     const { error: insertError } = await supabase
       .from('calendar_events')
       .insert(eventArray);
 
     if (insertError) throw insertError;
 
+    console.log('[CALENDAR_SYNC] Sync complete!');
     return NextResponse.json({ 
       success: true, 
       count: eventArray.length,
