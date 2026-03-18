@@ -5,8 +5,9 @@ import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Menu, X } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
+import { createClient } from "@/lib/supabase/client";
 
 const navLinks = [
   { href: "/", label: "Home" },
@@ -18,6 +19,20 @@ const navLinks = [
 export function Navbar() {
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [user, setUser] = useState<any>(null);
+
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -52,9 +67,9 @@ export function Navbar() {
         </div>
 
         <div className="flex items-center gap-3">
-          <Link href="/auth/login" className="hidden md:block">
+          <Link href={user ? "/admin" : "/auth/login"} className="hidden md:block">
             <Button variant="outline" size="sm">
-              Admin Sign In
+              {user ? "Admin Dashboard" : "Admin Sign In"}
             </Button>
           </Link>
 
@@ -94,12 +109,12 @@ export function Navbar() {
               </Link>
             ))}
             <Link
-              href="/auth/login"
+              href={user ? "/admin" : "/auth/login"}
               className="block"
               onClick={() => setMobileMenuOpen(false)}
             >
               <Button variant="outline" size="sm" className="mt-2 w-full">
-                Admin Sign In
+                {user ? "Admin Dashboard" : "Admin Sign In"}
               </Button>
             </Link>
           </div>
