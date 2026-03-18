@@ -38,7 +38,7 @@ export async function POST(req: Request) {
           html: `
             <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px;">
               <h2 style="color: #0f172a; margin-bottom: 16px;">New Admin Access Request</h2>
-              <p style="color: #64748b; font-size: 14px; margin-bottom: 24px;">A user has applied for administrative privileges on the DIS Knowledge Hub.</p>
+              <p style="color: #64748b; font-size: 14px; margin-bottom: 24px;">A user has applied for administrative privileges on the DIS Information Hub.</p>
               
               <table style="width: 100%; border-collapse: collapse; margin-bottom: 24px;">
                 <tr>

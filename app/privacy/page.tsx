@@ -14,13 +14,13 @@ export default function PrivacyPage() {
 
           <div className="bg-muted/50 border border-border rounded-xl p-6 mb-12">
             <p className="text-sm leading-relaxed mb-0">
-              <strong>Legal Notice:</strong> This document constitutes a comprehensive legal framework for the DIS Knowledge Hub. It is drafted in compliance with Korea&apos;s Personal Information Protection Act (PIPA), the AI Basic Act, the Network Act, and COPPA.
+              <strong>Legal Notice:</strong> This document constitutes a comprehensive legal framework for the DIS Information Hub. It is drafted in compliance with Korea&apos;s Personal Information Protection Act (PIPA), the AI Basic Act, the Network Act, and COPPA.
             </p>
           </div>
 
           <section className="mb-12">
             <h2 className="text-2xl font-semibold mb-4 text-primary">1. Introduction, Identity of the Data Controller, and Scope</h2>
-            <p>This Privacy Policy (&quot;Policy&quot;) is published by <strong>Daegu International School (&quot;DIS&quot;)</strong>, acting as the Data Controller for the DIS Knowledge Hub (&quot;the Service&quot;). The Service is an AI-assisted search tool that enables students, parents, and staff to query official DIS documents using natural language and receive sourced answers.</p>
+            <p>This Privacy Policy (&quot;Policy&quot;) is published by <strong>Daegu International School (&quot;DIS&quot;)</strong>, acting as the Data Controller for the DIS Information Hub (&quot;the Service&quot;). The Service is an AI-assisted search tool that enables students, parents, and staff to query official DIS documents using natural language and receive sourced answers.</p>
             <p>This Policy applies to all personal information processed in connection with the Service, regardless of access method. It is published in compliance with PIPA, the AI Basic Act, the Network Act, and COPPA.</p>
           </section>
 
@@ -118,7 +118,7 @@ export default function PrivacyPage() {
 
           <section className="mb-12">
             <h2 className="text-2xl font-semibold mb-4 text-primary">8. Children&apos;s Privacy</h2>
-            <p>The DIS Knowledge Hub is operated within a school environment and complies with PIPA Art. 22(6) and COPPA.</p>
+            <p>The DIS Information Hub is operated within a school environment and complies with PIPA Art. 22(6) and COPPA.</p>
             <ul className="list-disc pl-6 space-y-2">
               <li><strong>Under 14:</strong> No personal information is collected without verifiable guardian consent.</li>
               <li><strong>Under 13 (COPPA):</strong> Principles are observed given DIS&apos;s affiliation with Lee Academy (USA).</li>

@@ -60,13 +60,13 @@ export async function POST(req: Request) {
         const { data, error: sendError } = await resend.emails.send({
           from: 'DIS Hub <onboarding@resend.dev>',
           to: request.email, // This is the requester's email from the database
-          subject: 'Admin Access Approved - DIS Knowledge Hub',
+          subject: 'Admin Access Approved - DIS Information Hub',
           html: `
             <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px;">
               <h2 style="color: #059669; margin-bottom: 16px;">Welcome to the Admin Team!</h2>
               <p style="color: #0f172a; font-size: 16px; font-weight: 500;">Hello ${request.name},</p>
               <p style="color: #64748b; font-size: 15px; line-height: 1.6;">
-                Great news! Your request for administrative access to the <strong>DIS Knowledge Hub</strong> has been reviewed and <strong>approved</strong>.
+                Great news! Your request for administrative access to the <strong>DIS Information Hub</strong> has been reviewed and <strong>approved</strong>.
               </p>
               
               <div style="background: #f0fdf4; padding: 20px; border-radius: 8px; border: 1px solid #dcfce7; margin: 24px 0;">
