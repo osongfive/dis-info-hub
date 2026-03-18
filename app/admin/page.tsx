@@ -159,18 +159,32 @@ export default function AdminPage() {
   };
 
   useEffect(() => {
-    const checkUser = async () => {
-      const supabase = createClient();
-      const { data: { session } } = await supabase.auth.getSession();
+    const supabase = createClient();
+    
+    // Initial check
+    supabase.auth.getSession().then(({ data: { session } }) => {
       if (!session) {
         router.push("/auth/login");
-        return;
+      } else {
+        setUserEmail(session.user.email || null);
+        fetchData(session.user.email);
       }
-      setUserEmail(session.user.email || null);
-      fetchData(session.user.email);
-    };
-    checkUser();
-  }, [router]);
+    });
+
+    // Listen for auth changes to KEEP LOGGED IN (Persistence)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session) {
+        setUserEmail(session.user.email || null);
+        // Only re-fetch if we transitioned from no-email to having-email
+        if (!userEmail) fetchData(session.user.email);
+      } else {
+        setUserEmail(null);
+        router.push("/auth/login");
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [router, userEmail]);
 
   const handleLogout = async () => {
     setIsLoggingOut(true);
@@ -400,20 +414,20 @@ ${sanitizedQuestion}`;
     try {
       const response = await fetch('/api/calendar/sync', { method: 'POST' });
       const data = await response.json();
-      if (data.success) {
-        toast.success(`Synced ${data.count} events!`);
-        // Refresh events
-        const supabase = createClient();
-        const { data: events } = await supabase
-          .from('calendar_events')
-          .select('*')
-          .gte('end_time', new Date().toISOString())
-          .order('start_time', { ascending: true })
-          .limit(5);
-        setCalendarEvents(events || []);
-      } else {
-        toast.error(data.error || "Sync failed");
-      }
+        if (data.success) {
+          toast.success(`Synced ${data.count} events!`);
+          // Refresh events
+          const supabase = createClient();
+          const { data: events } = await supabase
+            .from('calendar_events')
+            .select('*')
+            .gte('end_time', new Date().toISOString())
+            .order('start_time', { ascending: true })
+            .limit(5);
+          setCalendarEvents(events || []);
+        } else {
+          toast.error(data.error || data.message || "Sync failed");
+        }
     } catch (e) {
       toast.error("Network error during sync");
     } finally {
@@ -540,59 +554,59 @@ ${sanitizedQuestion}`;
               {/* User Management Section (Super Admin Only) */}
               {userEmail === SUPER_ADMIN && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-12">
-                  <Card className="bg-white/5 border-white/10 text-white overflow-hidden backdrop-blur-sm">
+                  <Card className="bg-muted/30 border-border text-foreground overflow-hidden backdrop-blur-sm">
                     <div className="p-1 bg-gradient-to-r from-blue-500/20 to-purple-500/20" />
                     <CardContent className="p-6">
                       <div className="flex items-center gap-3 mb-6">
-                        <div className="p-2 bg-blue-500/20 rounded-lg">
-                          <ShieldPlus className="h-5 w-5 text-blue-400" />
+                        <div className="p-2 bg-blue-500/10 rounded-lg">
+                          <ShieldPlus className="h-5 w-5 text-blue-500" />
                         </div>
                         <div>
                           <h3 className="text-xl font-bold">Admin Privileges</h3>
-                          <p className="text-sm text-white/40">Manage administrative access</p>
+                          <p className="text-sm text-muted-foreground">Manage administrative access</p>
                         </div>
                       </div>
                       <Button 
                         onClick={() => router.push('/auth/request-admin')}
                         variant="outline"
-                        className="w-full bg-white/5 border-white/10 hover:bg-white/10 text-white mt-4"
+                        className="w-full bg-background border-border hover:bg-muted text-foreground mt-4"
                       >
                         View Pending Requests ({requests.length})
                       </Button>
                     </CardContent>
                   </Card>
 
-                  {/* NEW: Calendar Sync Card */}
-                  <Card className="bg-white/5 border-white/10 text-white overflow-hidden backdrop-blur-sm">
+                  {/* Calendar Sync Card */}
+                  <Card className="bg-muted/30 border-border text-foreground overflow-hidden backdrop-blur-sm">
                     <div className="p-1 bg-gradient-to-r from-green-500/20 to-emerald-500/20" />
                     <CardContent className="p-6">
                       <div className="flex items-center gap-3 mb-6">
-                        <div className="p-2 bg-green-500/20 rounded-lg">
-                          <Calendar className="h-5 w-5 text-green-400" />
+                        <div className="p-2 bg-green-500/10 rounded-lg">
+                          <Calendar className="h-5 w-5 text-green-500" />
                         </div>
                         <div>
                           <h3 className="text-xl font-bold">Calendar Synchronization</h3>
-                          <p className="text-sm text-white/40">Sync official school events live</p>
+                          <p className="text-sm text-muted-foreground">Sync official school events live</p>
                         </div>
                       </div>
                       
                       <div className="space-y-3 mb-6">
                         {calendarEvents.length > 0 ? (
                           calendarEvents.map((event, idx) => (
-                            <div key={idx} className="flex items-center justify-between p-2 bg-white/5 rounded border border-white/5 text-xs">
+                            <div key={idx} className="flex items-center justify-between p-2 bg-background/50 rounded border border-border/50 text-xs">
                               <span className="font-medium truncate max-w-[150px]">{event.title}</span>
-                              <span className="text-white/40">{new Date(event.start_time).toLocaleDateString()}</span>
+                              <span className="text-muted-foreground">{new Date(event.start_time).toLocaleDateString()}</span>
                             </div>
                           ))
                         ) : (
-                          <p className="text-xs text-white/40 text-center py-4 italic">No upcoming events synced yet.</p>
+                          <p className="text-xs text-muted-foreground text-center py-4 italic">No upcoming events synced yet.</p>
                         )}
                       </div>
 
                       <Button 
                         onClick={syncCalendar}
                         disabled={isSyncingCalendar}
-                        className="w-full bg-green-500/20 border-green-500/30 hover:bg-green-500/30 text-green-400"
+                        className="w-full bg-green-600/10 border-green-600/20 hover:bg-green-600/20 text-green-600 font-semibold"
                       >
                         {isSyncingCalendar ? "Syncing..." : "Sync School Calendar Now"}
                       </Button>
@@ -647,7 +661,7 @@ ${sanitizedQuestion}`;
                             </Button>
                             <Button 
                               size="sm" 
-                              className="text-xs bg-green-600 hover:bg-green-700 text-white border-none"
+                              className="text-xs bg-green-600 hover:bg-green-700 text-foreground border-none"
                               onClick={() => handleManageRequest(req.id, 'approve')}
                             >
                               Approve & Notify
