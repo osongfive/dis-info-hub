@@ -28,7 +28,7 @@ const SANITIZE_PATTERN = /[<>{}]/g;
 // 🧠 AI Configuration - Easy Reversion
 // Primary: For final answers (Reasoning & Detail)
 // Fast: For quick internal tasks (Translation)
-const AI_MODEL_PRIMARY = "claude-3-5-sonnet-latest"; 
+const AI_MODEL_PRIMARY = "gpt-4o-mini"; 
 const AI_MODEL_FAST = "gpt-4o-mini";
 
 // Sanitize user input to prevent XSS
