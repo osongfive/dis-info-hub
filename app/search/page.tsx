@@ -5,7 +5,7 @@ import { ChatMessage } from "@/components/chat-message";
 import { SourceCard } from "@/components/source-card";
 import { SearchSidebar } from "@/components/search-sidebar";
 import { Button } from "@/components/ui/button";
-import { Send, Sparkles, Menu, X, Info } from "lucide-react";
+import { Send, Sparkles, Menu, X, Info, Trash2 } from "lucide-react";
 import { useState, useEffect, Suspense, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { marked } from "marked";
@@ -31,6 +31,8 @@ const SANITIZE_PATTERN = /[<>{}]/g;
 const AI_MODEL_PRIMARY = "gpt-4o-mini"; 
 const AI_MODEL_FAST = "gpt-4o-mini";
 
+const STORAGE_KEY = "dis-chat-history";
+
 // Sanitize user input to prevent XSS
 function sanitizeInput(input: string): string {
   return input
@@ -39,18 +41,42 @@ function sanitizeInput(input: string): string {
     .replace(SANITIZE_PATTERN, "");
 }
 
-
-
 function SearchContent() {
   const searchParams = useSearchParams();
   const initialQuery = searchParams.get("q") || "";
 
   const [messages, setMessages] = useState<any[]>([]);
+  const [sources, setSources] = useState<any[]>([]);
   
   // Use a ref to strictly prevent duplicate initial query fires
   const initialQueryFired = useRef(false);
   
-  const [sources, setSources] = useState<any[]>([]);
+  // Persistence: Load from LocalStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      try {
+        const { messages: savedMessages, sources: savedSources } = JSON.parse(saved);
+        if (Array.isArray(savedMessages)) setMessages(savedMessages);
+        if (Array.isArray(savedSources)) setSources(savedSources);
+      } catch (e) {
+        console.error("Failed to load history", e);
+      }
+    }
+  }, []);
+
+  // Persistence: Save to LocalStorage on change
+  useEffect(() => {
+    if (messages.length > 0) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ messages, sources }));
+    }
+  }, [messages, sources]);
+
+  const clearHistory = () => {
+    localStorage.removeItem(STORAGE_KEY);
+    setMessages([]);
+    setSources([]);
+  };
   const [input, setInput] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -341,8 +367,19 @@ ${queryText}`;
                 setSidebarOpen(false);
               }}
             />
+            <div className="flex flex-col gap-2 p-2 mt-4 border-t border-white/10 pt-4">
+             <Button 
+               variant="ghost" 
+               className="justify-start text-white/60 hover:text-white transition-colors"
+               onClick={clearHistory}
+               disabled={messages.length === 0}
+             >
+               <Trash2 className="mr-2 h-4 w-4" />
+               Clear Chat History
+             </Button>
           </div>
         </div>
+      </div>
 
         {/* Overlay */}
         {sidebarOpen && (
