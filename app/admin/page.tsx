@@ -95,6 +95,7 @@ export default function AdminPage() {
   const [isTesting, setIsTesting] = useState(false);
   const [isSyncingCalendar, setIsSyncingCalendar] = useState(false);
   const [calendarEvents, setCalendarEvents] = useState<any[]>([]);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
 
   const router = useRouter();
 
@@ -169,6 +170,7 @@ export default function AdminPage() {
         setUserEmail(session.user.email || null);
         fetchData(session.user.email);
       }
+      setIsInitialLoading(false);
     });
 
     // Listen for auth changes to KEEP LOGGED IN (Persistence)
@@ -177,14 +179,15 @@ export default function AdminPage() {
         setUserEmail(session.user.email || null);
         // Only re-fetch if we transitioned from no-email to having-email
         if (!userEmail) fetchData(session.user.email);
-      } else {
+      } else if (!isInitialLoading) {
+        // ONLY redirect if we are sure the initial check is done and failed
         setUserEmail(null);
         router.push("/auth/login");
       }
     });
 
     return () => subscription.unsubscribe();
-  }, [router, userEmail]);
+  }, [router, userEmail, isInitialLoading]);
 
   const handleLogout = async () => {
     setIsLoggingOut(true);
@@ -434,6 +437,17 @@ ${sanitizedQuestion}`;
       setIsSyncingCalendar(false);
     }
   };
+
+  if (isInitialLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-4">
+          <div className="h-12 w-12 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+          <p className="text-sm font-medium text-muted-foreground">Verifying Secure Session...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen flex-col">

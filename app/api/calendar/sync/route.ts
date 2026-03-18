@@ -5,8 +5,8 @@ import ical from 'node-ical';
 export async function POST(req: Request) {
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-    const supabase = createClient(supabaseUrl, supabaseAnonKey);
+    const supabaseServiceKey = process.env.SUPABASE_SECRET_KEY!; // USE SERVICE ROLE KEY
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     // 1. Fetch the school calendar .ics
     const CALENDAR_URL = 'https://www.dis.sc.kr/calendar/calendar_354_gmt.ics';
