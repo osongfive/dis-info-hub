@@ -17,6 +17,7 @@ import {
   CheckCircle2,
   Clock,
   LogOut,
+  Calendar,
 } from "lucide-react";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -92,6 +93,8 @@ export default function AdminPage() {
   const [isLoadingDocs, setIsLoadingDocs] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
+  const [isSyncingCalendar, setIsSyncingCalendar] = useState(false);
+  const [calendarEvents, setCalendarEvents] = useState<any[]>([]);
 
   const router = useRouter();
 
@@ -142,6 +145,15 @@ export default function AdminPage() {
         setRequests(reqs);
       }
     }
+
+    // Fetch 5 most recent upcoming calendar events
+    const { data: events } = await supabase
+      .from('calendar_events')
+      .select('*')
+      .gte('end_time', new Date().toISOString())
+      .order('start_time', { ascending: true })
+      .limit(5);
+    setCalendarEvents(events || []);
     
     setIsLoadingDocs(false);
   };
@@ -383,6 +395,32 @@ ${sanitizedQuestion}`;
     }
   };
 
+  const syncCalendar = async () => {
+    setIsSyncingCalendar(true);
+    try {
+      const response = await fetch('/api/calendar/sync', { method: 'POST' });
+      const data = await response.json();
+      if (data.success) {
+        toast.success(`Synced ${data.count} events!`);
+        // Refresh events
+        const supabase = createClient();
+        const { data: events } = await supabase
+          .from('calendar_events')
+          .select('*')
+          .gte('end_time', new Date().toISOString())
+          .order('start_time', { ascending: true })
+          .limit(5);
+        setCalendarEvents(events || []);
+      } else {
+        toast.error(data.error || "Sync failed");
+      }
+    } catch (e) {
+      toast.error("Network error during sync");
+    } finally {
+      setIsSyncingCalendar(false);
+    }
+  };
+
   return (
     <div className="flex min-h-screen flex-col">
       <Navbar />
@@ -498,6 +536,70 @@ ${sanitizedQuestion}`;
                   {isUploading ? "Uploading..." : "Upload Document"}
                 </Button>
               </section>
+
+              {/* User Management Section (Super Admin Only) */}
+              {userEmail === SUPER_ADMIN && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-12">
+                  <Card className="bg-white/5 border-white/10 text-white overflow-hidden backdrop-blur-sm">
+                    <div className="p-1 bg-gradient-to-r from-blue-500/20 to-purple-500/20" />
+                    <CardContent className="p-6">
+                      <div className="flex items-center gap-3 mb-6">
+                        <div className="p-2 bg-blue-500/20 rounded-lg">
+                          <ShieldPlus className="h-5 w-5 text-blue-400" />
+                        </div>
+                        <div>
+                          <h3 className="text-xl font-bold">Admin Privileges</h3>
+                          <p className="text-sm text-white/40">Manage administrative access</p>
+                        </div>
+                      </div>
+                      <Button 
+                        onClick={() => router.push('/auth/request-admin')}
+                        variant="outline"
+                        className="w-full bg-white/5 border-white/10 hover:bg-white/10 text-white mt-4"
+                      >
+                        View Pending Requests ({requests.length})
+                      </Button>
+                    </CardContent>
+                  </Card>
+
+                  {/* NEW: Calendar Sync Card */}
+                  <Card className="bg-white/5 border-white/10 text-white overflow-hidden backdrop-blur-sm">
+                    <div className="p-1 bg-gradient-to-r from-green-500/20 to-emerald-500/20" />
+                    <CardContent className="p-6">
+                      <div className="flex items-center gap-3 mb-6">
+                        <div className="p-2 bg-green-500/20 rounded-lg">
+                          <Calendar className="h-5 w-5 text-green-400" />
+                        </div>
+                        <div>
+                          <h3 className="text-xl font-bold">Calendar Synchronization</h3>
+                          <p className="text-sm text-white/40">Sync official school events live</p>
+                        </div>
+                      </div>
+                      
+                      <div className="space-y-3 mb-6">
+                        {calendarEvents.length > 0 ? (
+                          calendarEvents.map((event, idx) => (
+                            <div key={idx} className="flex items-center justify-between p-2 bg-white/5 rounded border border-white/5 text-xs">
+                              <span className="font-medium truncate max-w-[150px]">{event.title}</span>
+                              <span className="text-white/40">{new Date(event.start_time).toLocaleDateString()}</span>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-xs text-white/40 text-center py-4 italic">No upcoming events synced yet.</p>
+                        )}
+                      </div>
+
+                      <Button 
+                        onClick={syncCalendar}
+                        disabled={isSyncingCalendar}
+                        className="w-full bg-green-500/20 border-green-500/30 hover:bg-green-500/30 text-green-400"
+                      >
+                        {isSyncingCalendar ? "Syncing..." : "Sync School Calendar Now"}
+                      </Button>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
 
               {/* Access Requests Management (Super Admin ONLY) */}
               {userEmail === SUPER_ADMIN && requests.some(r => r.status === 'pending') && (

@@ -66,19 +66,43 @@ export async function POST(req: Request) {
 
     if (matchError) throw matchError;
 
-    // If no chunks, return empty context
-    if (!matchedChunks || matchedChunks.length === 0) {
-      return NextResponse.json({
-        answer: "I couldn't find any relevant school documents to answer your question.",
-        sources: []
-      });
+    // 4. Calendar Integration (NEW)
+    // Check if the query is related to dates or events
+    const dateKeywords = ['calendar', 'event', 'when', 'date', 'schedule', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday', 'january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december', 'break', 'holiday'];
+    const isDateRelated = dateKeywords.some(kw => query.toLowerCase().includes(kw));
+    
+    let calendarContext = "";
+    let calendarSources: any[] = [];
+
+    if (isDateRelated) {
+      const now = new Date().toISOString();
+      const { data: events } = await supabase
+        .from('calendar_events')
+        .select('*')
+        .gte('end_time', now)
+        .order('start_time', { ascending: true })
+        .limit(20);
+
+      if (events && events.length > 0) {
+        calendarContext = "\n\nUPCOMING SCHOOL EVENTS AND CALENDAR:\n" + events.map(e => {
+          const start = new Date(e.start_time).toLocaleDateString();
+          return `- ${e.title} (${start})${e.location ? ' @ ' + e.location : ''}${e.description ? ': ' + e.description : ''}`;
+        }).join('\n');
+        
+        calendarSources.push({
+          title: "Official School Calendar (Live Feed)",
+          category: "Calendar",
+          preview: "Live school events synced from the official DIS calendar.",
+          fileUrl: "https://www.dis.sc.kr/quicklinks/calendar"
+        });
+      }
     }
 
-    // 4. Gather context and sources efficiently (No second DB query needed!)
-    const contextText = matchedChunks.map((c: any) => c.content).join('\n\n');
+    // 5. Gather context and sources efficiently
+    const contextText = matchedChunks.map((c: any) => c.content).join('\n\n') + calendarContext;
     
     // Map chunks to docs using metadata already in the RPC response
-    const sources = matchedChunks.map((chunk: any) => ({
+    const docSources = matchedChunks.map((chunk: any) => ({
       title: chunk.document_title || 'Unknown Document',
       category: chunk.document_category || 'General',
       preview: chunk.content.substring(0, 150) + '...',
@@ -86,7 +110,7 @@ export async function POST(req: Request) {
     }));
 
     // Deduplicate sources by title
-    const uniqueSources = Array.from(new Map(sources.map((s: any) => [s.title, s])).values());
+    const uniqueSources = Array.from(new Map([...docSources, ...calendarSources].map((s: any) => [s.title, s])).values());
 
     return NextResponse.json({
       context: contextText,
