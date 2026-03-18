@@ -35,25 +35,14 @@ Integrated with comprehensive legal documentation, including a Privacy Policy, T
 
 ---
 
-## 🛠️ Local Development
+## 🚀 Deployment
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/osongfive/dis-info-hub.git
-   cd dis-info-hub
-   ```
+The DIS Information Hub is optimized for deployment on **Vercel**. Connect your GitHub repository to Vercel to enable automated CI/CD and production hosting.
 
-2. **Install dependencies:**
-   ```bash
-   npm install
-   ```
-
-3. **Configure Environment:**
-   Create a `.env.local` file with your Supabase, Hugging Face, and Resend credentials (refer to `.gitignore` to ensure these stay private).
-
-4. **Run the development server:**
-   ```bash
-   npm run dev
-   ```
-
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Configuration
+Ensure the following environment variables are configured in your Vercel project settings:
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `SUPABASE_SECRET_KEY`
+- `HF_ACCESS_TOKEN`
+- `RESEND_API_KEY`
