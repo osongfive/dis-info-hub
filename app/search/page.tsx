@@ -92,10 +92,33 @@ function SearchContent() {
     });
 
     try {
+      // INTERNAL TRANSLATION: If the query is in Korean, get a quick English version for BETTER SEARCHING
+      let searchQuery = queryText;
+      const isKorean = /[ㄱ-ㅎㅏ-ㅣ가-힣]/.test(queryText);
+      
+      if (isKorean && typeof window !== "undefined" && window.puter) {
+        try {
+          const translationResponse = await window.puter.ai.chat(
+            `Translate this school-related question into a concise English search query for a document database. Just provide the English translation, nothing else.\n\nQuestion: ${queryText}`,
+            { model: 'gpt-4o-mini' }
+          );
+          if (translationResponse?.toString()) {
+            searchQuery = translationResponse.toString().trim();
+            console.log("[SEARCH] Internal Translation:", searchQuery);
+          }
+        } catch (tErr) {
+          console.warn("Translation failed, using original:", tErr);
+        }
+      }
+
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: queryText, category: selectedCategory }),
+        body: JSON.stringify({ 
+          query: queryText, 
+          searchQuery: searchQuery, // Pass the English version for embeddings
+          category: selectedCategory 
+        }),
       });
       
       const data = await response.json();
@@ -120,22 +143,19 @@ function SearchContent() {
       let finalAnswerHtml = "";
       
       if (contextText) {
-        const prompt = `You are an authoritative and helpful school information assistant for the DIS Information Hub. Your goal is to provide comprehensive, accurate answers by synthesizing the official school documents provided.
+        const prompt = `You are a highly precise and authoritative school information assistant for the DIS Information Hub. Your primary goal is to provide EXACT details from the school handbooks.
 
-LANGUAGE RULE:
+LANGUAGE & ACCURACY RULE:
 - ALWAYS identify the language used in the "Student Question" and respond in that SAME language. 
-- Example: If the question is in Korean, the entire response must be in Korean. If English, respond in English.
+- If the question is in KOREAN, you must translate the provided "Document Context" accurately to answer in Korean.
+- DO NOT provide "general examples" or "typical school advice" if the information is missing. If it's not in the documents, state it is not covered.
 
-CONTENT RULES:
-- Base your answers on the provided document context. While you should stay grounded in the facts, you are encouraged to make logical inferences and combine multiple pieces of information to provide a complete answer.
-- If a question is not answered verbatim in the text, look for related policies or guidelines and explain how they logically apply to the student's situation.
-- Be SPECIFIC and DETAILED. Include exact policies, numbers, requirements, and consequences.
-- Use bullet points (- item) and numbered lists (1. item) extensively for readability.
-- Use **bold** for key terms, policy names, and important details.
-- Structure long answers with clear headings (## Heading).
-- Speak definitively: say "The policy states..." or "Based on the handbook guidelines..."
-- If the context contains specific consequences or penalties, ensure they are clearly listed.
-- Only if there is absolutely no relevant information or logical connection possible, state that the information is not covered.
+CRITICAL CONTENT RULES:
+- **EXTRACT EXACT DETAILS:** Users want specifics. Look for and include exact colors, patterns, materials, store names, room numbers, and specific times. (e.g., "khaki pants," "navy blue polo," "Lands' End," "Room 302").
+- **STRICT GROUNDING:** Only use the provided "Document Context." NEVER hallucinate or guess standard school procedures.
+- **LOGICAL INFERENCE:** Combine related pieces of information (e.g., if a student asks about a sport, check both the "Athletic Policy" and the "Code of Conduct" sections provided).
+- **FORMATTING:** Use bullet points (- item) and numbered lists (1. item). Use **bold** for key terms and specific requirements.
+- **HEADINGS:** Structure complex answers with "## Heading".
 
 Document Context:
 ${contextText}

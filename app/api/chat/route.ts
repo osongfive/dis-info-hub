@@ -5,7 +5,7 @@ import crypto from 'crypto';
 
 export async function POST(req: Request) {
   try {
-    const { query, category } = await req.json();
+    const { query, category, searchQuery } = await req.json();
 
     if (!query) {
       return NextResponse.json({ error: 'Missing query param' }, { status: 400 });
@@ -41,10 +41,13 @@ export async function POST(req: Request) {
     }
 
     // 2. Parallelize: Embedding generation and Logging
+    // Use searchQuery (translated) if provided, otherwise use original query
+    const textToEmbed = searchQuery || query;
+    
     const [embedding] = await Promise.all([
       hf.featureExtraction({
         model: 'sentence-transformers/all-MiniLM-L6-v2',
-        inputs: query,
+        inputs: textToEmbed,
       }) as Promise<number[]>,
       supabase.from('search_queries').insert({ query }) // Logging is non-blocking
     ]);
@@ -57,7 +60,7 @@ export async function POST(req: Request) {
         
     const { data: matchedChunks, error: matchError } = await supabase.rpc('match_document_chunks', {
       query_embedding: embedding,
-      match_count: 8, // Reduced from 12 to 8 for speed (less context for LLM = faster TTFT)
+      match_count: 15, // INCREASED from 8 to 15 to ensure we get specific details (colors, patterns)
       category_filter: categoryFilter,
     });
 
