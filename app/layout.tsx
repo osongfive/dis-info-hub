@@ -18,7 +18,7 @@ const geistMono = Geist_Mono({
 const _caveat = Caveat({ subsets: ['latin'], variable: '--font-accent' })
 
 export const metadata: Metadata = {
-  title: 'DIS AI Search',
+  title: 'DIS Information Hub',
   description: 'Search through school documents with AI',
   icons: {
     icon: [

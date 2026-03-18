@@ -17,7 +17,7 @@ export default function TermsPage() {
 
           <section className="mb-12">
             <h2 className="text-2xl font-semibold mb-4 text-primary">2. Description of Service</h2>
-            <p>The DIS Knowledge Hub is an AI-assisted document retrieval tool. It enables users to submit natural-language questions and receive answers sourced exclusively from official DIS documents.</p>
+            <p>The DIS Information Hub is an AI-assisted document retrieval tool. It enables users to submit natural-language questions and receive answers sourced exclusively from official DIS documents.</p>
             <div className="bg-muted border-l-4 border-primary p-4 my-6">
               <p className="text-sm italic mb-0"><strong>Not a substitute for official communication:</strong> The Service is a convenience tool only. In any conflict between a Service response and official DIS communications, the official communication prevails.</p>
             </div>
@@ -50,7 +50,7 @@ export default function TermsPage() {
           <section className="mb-12">
             <h2 className="text-2xl font-semibold mb-4 text-primary">5. Intellectual Property Rights</h2>
             <p>All documents available through the Service are the intellectual property of DIS and/or Lee Academy. Access does not transfer any property rights. Users may access and print documents for personal, non-commercial use only.</p>
-            <p>The software, design, and architecture of the DIS Knowledge Hub are the proprietary intellectual property of the Service operator.</p>
+            <p>The software, design, and architecture of the DIS Information Hub are the proprietary intellectual property of the Service operator.</p>
           </section>
 
           <section className="mb-12">

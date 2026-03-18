@@ -1,4 +1,4 @@
-# DIS Knowledge Hub
+# DIS Information Hub
 
 A centralized, AI-powered information portal designed specifically for the DIS community. This platform serves as a "single source of truth," helping students and staff find instant, accurate answers to questions about school policies, handbooks, and administrative procedures.
 
