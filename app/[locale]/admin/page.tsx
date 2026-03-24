@@ -83,7 +83,7 @@ export default function AdminPage() {
   const [description, setDescription] = useState("");
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
-  
+
   // Real Data State
   const [documents, setDocuments] = useState<any[]>([]);
   const [requests, setRequests] = useState<any[]>([]);
@@ -106,13 +106,13 @@ export default function AdminPage() {
     setIsLoadingDocs(true);
     const supabase = createClient();
     const currentEmail = email || userEmail;
-    
+
     // Fetch docs
     const { data: docs, error: docsError } = await supabase
       .from('documents')
       .select('*')
       .order('created_at', { ascending: false });
-      
+
     if (!docsError && docs) {
       setDocuments(docs);
     }
@@ -121,7 +121,7 @@ export default function AdminPage() {
     const { data: queries } = await supabase
       .from('search_queries')
       .select('query');
-      
+
     if (queries) {
       setTotalQuestions(queries.length);
       const counts: Record<string, number> = {};
@@ -134,14 +134,14 @@ export default function AdminPage() {
         .slice(0, 5);
       setTopQuestionsList(sorted);
     }
-    
+
     // Fetch requests ONLY if Super Admin
     if (currentEmail === SUPER_ADMIN) {
       const { data: reqs } = await supabase
         .from('admin_access_requests')
         .select('*')
         .order('created_at', { ascending: false });
-        
+
       if (reqs) {
         setRequests(reqs);
       }
@@ -155,13 +155,13 @@ export default function AdminPage() {
       .order('start_time', { ascending: true })
       .limit(5);
     setCalendarEvents(events || []);
-    
+
     setIsLoadingDocs(false);
   };
 
   useEffect(() => {
     const supabase = createClient();
-    
+
     // Initial check
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!session) {
@@ -212,17 +212,17 @@ export default function AdminPage() {
     e.stopPropagation();
     setDragActive(false);
     setUploadError(null);
-    
+
     const files = Array.from(e.dataTransfer.files);
     if (files.length === 0) return;
     const file = files[0]; // just uploading one file for now
-    
+
     const validation = validateFile(file);
     if (!validation.valid) {
       setUploadError(validation.error || "Invalid file");
       return;
     }
-    
+
     await uploadFile(file);
   };
 
@@ -230,7 +230,7 @@ export default function AdminPage() {
     const files = e.target.files;
     if (!files || files.length === 0) return;
     const file = files[0];
-    
+
     const validation = validateFile(file);
     if (!validation.valid) {
       setUploadError(validation.error || "Invalid file");
@@ -287,7 +287,7 @@ export default function AdminPage() {
       }).then(() => {
         fetchData(); // Refresh again once processing returns (it might take a bit)
       });
-      
+
     } catch (err: any) {
       setUploadError(err.message || 'Upload failed');
     } finally {
@@ -387,10 +387,10 @@ ${sanitizedQuestion}`;
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ requestId, action })
       });
-      
+
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Action failed');
-      
+
       toast.success(`Request ${action === 'approve' ? 'approved' : 'denied'} successfully`);
       fetchData(); // Refresh list
     } catch (error: any) {
@@ -417,20 +417,20 @@ ${sanitizedQuestion}`;
     try {
       const response = await fetch('/api/calendar/sync', { method: 'POST' });
       const data = await response.json();
-        if (data.success) {
-          toast.success(`Synced ${data.count} events!`);
-          // Refresh events
-          const supabase = createClient();
-          const { data: events } = await supabase
-            .from('calendar_events')
-            .select('*')
-            .gte('end_time', new Date().toISOString())
-            .order('start_time', { ascending: true })
-            .limit(5);
-          setCalendarEvents(events || []);
-        } else {
-          toast.error(data.error || data.message || "Sync failed");
-        }
+      if (data.success) {
+        toast.success(`Synced ${data.count} events!`);
+        // Refresh events
+        const supabase = createClient();
+        const { data: events } = await supabase
+          .from('calendar_events')
+          .select('*')
+          .gte('end_time', new Date().toISOString())
+          .order('start_time', { ascending: true })
+          .limit(5);
+        setCalendarEvents(events || []);
+      } else {
+        toast.error(data.error || data.message || "Sync failed");
+      }
     } catch (e) {
       toast.error("Network error during sync");
     } finally {
@@ -556,7 +556,7 @@ ${sanitizedQuestion}`;
                   </div>
                 </div>
 
-                <Button 
+                <Button
                   className="mt-4 w-full gap-2 sm:w-auto"
                   disabled={isUploading}
                 >
@@ -580,7 +580,7 @@ ${sanitizedQuestion}`;
                           <p className="text-sm text-muted-foreground">Manage administrative access</p>
                         </div>
                       </div>
-                      <Button 
+                      <Button
                         onClick={() => router.push('/auth/request-admin')}
                         variant="outline"
                         className="w-full bg-background border-border hover:bg-muted text-foreground mt-4"
@@ -603,7 +603,7 @@ ${sanitizedQuestion}`;
                           <p className="text-sm text-muted-foreground">Sync official school events live</p>
                         </div>
                       </div>
-                      
+
                       <div className="space-y-3 mb-6">
                         {calendarEvents.length > 0 ? (
                           calendarEvents.map((event, idx) => (
@@ -617,7 +617,7 @@ ${sanitizedQuestion}`;
                         )}
                       </div>
 
-                      <Button 
+                      <Button
                         onClick={syncCalendar}
                         disabled={isSyncingCalendar}
                         className="w-full bg-green-600/10 border-green-600/20 hover:bg-green-600/20 text-green-600 font-semibold"
@@ -637,7 +637,7 @@ ${sanitizedQuestion}`;
                   </div>
                   <div className="flex items-center gap-3 mb-6">
                     <div className="rounded-full bg-destructive/10 p-2">
-                       <ShieldPlus className="h-5 w-5 text-destructive" />
+                      <ShieldPlus className="h-5 w-5 text-destructive" />
                     </div>
                     <h2 className="text-lg font-semibold text-foreground">
                       Pending Access Requests
@@ -665,16 +665,16 @@ ${sanitizedQuestion}`;
                             </p>
                           </div>
                           <div className="flex items-center gap-2">
-                            <Button 
-                              size="sm" 
-                              variant="outline" 
+                            <Button
+                              size="sm"
+                              variant="outline"
                               className="text-xs border-destructive/20 hover:bg-destructive/10 hover:text-destructive"
                               onClick={() => handleManageRequest(req.id, 'deny')}
                             >
                               Deny
                             </Button>
-                            <Button 
-                              size="sm" 
+                            <Button
+                              size="sm"
                               className="text-xs bg-green-600 hover:bg-green-700 text-foreground border-none"
                               onClick={() => handleManageRequest(req.id, 'approve')}
                             >
@@ -760,17 +760,17 @@ ${sanitizedQuestion}`;
                           </td>
                           <td className="px-6 py-4">
                             <div className="flex items-center justify-end gap-2">
-                              <a 
-                                href={doc.file_url} 
-                                target="_blank" 
+                              <a
+                                href={doc.file_url}
+                                target="_blank"
                                 rel="noreferrer"
                                 className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                               >
                                 <Eye className="h-4 w-4" />
                               </a>
-                              <button 
+                              <button
                                 onClick={async () => {
-                                  if(confirm('Are you sure you want to delete this document?')) {
+                                  if (confirm('Are you sure you want to delete this document?')) {
                                     const supabase = createClient();
                                     await supabase.from('documents').delete().eq('id', doc.id);
                                     fetchData();

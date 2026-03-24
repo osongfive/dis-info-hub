@@ -1,19 +1,17 @@
 import { updateSession } from '@/lib/supabase/middleware'
+import createMiddleware from 'next-intl/middleware';
 import { type NextRequest } from 'next/server'
 
+const intlMiddleware = createMiddleware({
+  locales: ['en', 'ko'],
+  defaultLocale: 'en'
+});
+
 export async function middleware(request: NextRequest) {
-  return await updateSession(request)
+  const response = intlMiddleware(request);
+  return await updateSession(request, response as any);
 }
 
 export const config = {
-  matcher: [
-    /*
-     * Match all request paths except:
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     * - images - .svg, .png, .jpg, .jpeg, .gif, .webp
-     */
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
-  ],
+  matcher: ['/', '/(ko|en)/:path*', '/((?!_next|_vercel|.*\\..*).*)']
 }
