@@ -28,7 +28,7 @@ const SANITIZE_PATTERN = /[<>{}]/g;
 // 🧠 AI Configuration - Easy Reversion
 // Primary: For final answers (Reasoning & Detail)
 // Fast: For quick internal tasks (Translation)
-const AI_MODEL_PRIMARY = "gpt-4o-mini"; 
+const AI_MODEL_PRIMARY = "gpt-4o-mini";
 const AI_MODEL_FAST = "gpt-4o-mini";
 
 const STORAGE_KEY = "dis-chat-history";
@@ -47,10 +47,10 @@ function SearchContent() {
 
   const [messages, setMessages] = useState<any[]>([]);
   const [sources, setSources] = useState<any[]>([]);
-  
+
   // Use a ref to strictly prevent duplicate initial query fires
   const initialQueryFired = useRef(false);
-  
+
   // Persistence: Load from LocalStorage on mount
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
@@ -96,8 +96,8 @@ function SearchContent() {
       setMessages((prev) => [
         ...prev,
         { role: "user" as const, content: queryText },
-        { 
-          role: "assistant" as const, 
+        {
+          role: "assistant" as const,
           content: queryCache[cacheKey].answer,
           summary: queryCache[cacheKey].sources.length > 0 ? "Retrieved from session cache." : undefined
         }
@@ -108,7 +108,7 @@ function SearchContent() {
 
     setIsLoading(true);
     setSources([]); // clear old sources
-    
+
     // Optimistically add loading state
     setMessages((prev) => {
       // if the last message is already user's (like from initial query), don't add it again
@@ -116,7 +116,7 @@ function SearchContent() {
       if (currentMessages.length === 0 || currentMessages[currentMessages.length - 1].content !== queryText) {
         currentMessages.push({ role: "user" as const, content: queryText });
       }
-      
+
       return [
         ...currentMessages,
         { role: "assistant" as const, content: "Searching documents and generating response..." },
@@ -127,7 +127,7 @@ function SearchContent() {
       // INTERNAL TRANSLATION: If the query is in Korean, get a quick English version for BETTER SEARCHING
       let searchQuery = queryText;
       const isKorean = /[ㄱ-ㅎㅏ-ㅣ가-힣]/.test(queryText);
-      
+
       if (isKorean && typeof window !== "undefined" && window.puter) {
         try {
           const translationResponse = await window.puter.ai.chat(
@@ -146,15 +146,15 @@ function SearchContent() {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          query: queryText, 
+        body: JSON.stringify({
+          query: queryText,
           searchQuery: searchQuery, // Pass the English version for embeddings
-          category: selectedCategory 
+          category: selectedCategory
         }),
       });
-      
+
       const data = await response.json();
-      
+
       // If we found a cached answer in the database, use it immediately
       if (data.cached && data.answer) {
         setMessages((prev) => {
@@ -173,7 +173,7 @@ function SearchContent() {
 
       const contextText = data.context || "";
       let finalAnswerHtml = "";
-      
+
       if (contextText) {
         const prompt = `You are the DIS Information Hub Assistant—an authoritative, helpful, and highly detailed school guide. Your primary mission is to synthesize the provided official school documents into a clear, comprehensive answer.
 
@@ -199,85 +199,85 @@ ${queryText}`;
 
         try {
           if (typeof window !== "undefined" && window.puter) {
-             // 1. Start streaming from Puter.js
-             const aiResponse = await window.puter.ai.chat(prompt, { 
-               model: AI_MODEL_PRIMARY,
-               stream: true 
-             });
+            // 1. Start streaming from Puter.js
+            const aiResponse = await window.puter.ai.chat(prompt, {
+              model: AI_MODEL_PRIMARY,
+              stream: true
+            });
 
-             let fullText = "";
-             
-             // Iterate through the stream chunks
-             for await (const chunk of aiResponse) {
-               if (chunk.type === 'text') {
-                 fullText += chunk.text;
-                 
-                 // Render to HTML in real-time for better readability
-                 const currentHtml = await marked.parse(fullText);
-                 
-                 setMessages((prev) => {
-                   const newMessages = [...prev];
-                   newMessages[newMessages.length - 1] = {
-                     role: "assistant" as const,
-                     content: currentHtml, 
-                   };
-                   return newMessages;
-                 });
-               }
-             }
+            let fullText = "";
 
-             // 2. Post-processing: Final check for bullets (if AI didn't provide them)
-             let text = fullText;
-             // Only force bullets if the text is completely flat and long
-             const hasBullets = /(^|\n)\s*[-*]\s+/m.test(text) || /(^|\n)\s*\d+\.\s+/m.test(text);
+            // Iterate through the stream chunks
+            for await (const chunk of aiResponse) {
+              if (chunk.type === 'text') {
+                fullText += chunk.text;
 
-             if (!hasBullets && text.length > 100) {
-               const lineSplit = text.split("\n");
-               const linesHaveStructure = lineSplit.length > 1;
+                // Render to HTML in real-time for better readability
+                const currentHtml = await marked.parse(fullText);
 
-               const toBullets = (pieces: string[]) =>
-                 pieces
-                   .map((piece) => {
-                     const trimmed = piece.trim();
-                     if (!trimmed) return "";
-                     if (/^#{1,6}\s+/.test(trimmed)) return trimmed;
-                     return `- ${trimmed}`;
-                   })
-                   .join("\n");
+                setMessages((prev) => {
+                  const newMessages = [...prev];
+                  newMessages[newMessages.length - 1] = {
+                    role: "assistant" as const,
+                    content: currentHtml,
+                  };
+                  return newMessages;
+                });
+              }
+            }
 
-               if (linesHaveStructure) {
-                 text = toBullets(lineSplit);
-               } else {
-                 const sentences = text.split(/(?<=[\.!?])\s+(?=[A-Z0-9])/);
-                 if (sentences.length > 1) {
-                   text = toBullets(sentences);
-                 }
-               }
-             }
+            // 2. Post-processing: Final check for bullets (if AI didn't provide them)
+            let text = fullText;
+            // Only force bullets if the text is completely flat and long
+            const hasBullets = /(^|\n)\s*[-*]\s+/m.test(text) || /(^|\n)\s*\d+\.\s+/m.test(text);
 
-             let html = await marked.parse(text);
-             if (!/<ul[\s>]/i.test(html) && !/<ol[\s>]/i.test(html)) {
-               const single = fullText.trim();
-               if (single) {
-                 html = `<ul><li>${single}</li></ul>`;
-               }
-             }
-             finalAnswerHtml = html;
+            if (!hasBullets && text.length > 100) {
+              const lineSplit = text.split("\n");
+              const linesHaveStructure = lineSplit.length > 1;
 
-             // 3. Save to server-side cache for future users
-             fetch('/api/cache-answer', {
-               method: 'POST',
-               headers: { 'Content-Type': 'application/json' },
-               body: JSON.stringify({
-                 query: queryText,
-                 answer: finalAnswerHtml,
-                 sources: data.sources,
-                 cacheToken: data.cacheToken // Send the secure token back
-               }),
-             }).catch(err => console.error("Cache save error:", err));
+              const toBullets = (pieces: string[]) =>
+                pieces
+                  .map((piece) => {
+                    const trimmed = piece.trim();
+                    if (!trimmed) return "";
+                    if (/^#{1,6}\s+/.test(trimmed)) return trimmed;
+                    return `- ${trimmed}`;
+                  })
+                  .join("\n");
+
+              if (linesHaveStructure) {
+                text = toBullets(lineSplit);
+              } else {
+                const sentences = text.split(/(?<=[\.!?])\s+(?=[A-Z0-9])/);
+                if (sentences.length > 1) {
+                  text = toBullets(sentences);
+                }
+              }
+            }
+
+            let html = await marked.parse(text);
+            if (!/<ul[\s>]/i.test(html) && !/<ol[\s>]/i.test(html)) {
+              const single = fullText.trim();
+              if (single) {
+                html = `<ul><li>${single}</li></ul>`;
+              }
+            }
+            finalAnswerHtml = html;
+
+            // 3. Save to server-side cache for future users
+            fetch('/api/cache-answer', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                query: queryText,
+                answer: finalAnswerHtml,
+                sources: data.sources,
+                cacheToken: data.cacheToken // Send the secure token back
+              }),
+            }).catch(err => console.error("Cache save error:", err));
 
           } else {
-             finalAnswerHtml = "AI generation unavailable. Puter requires connection.";
+            finalAnswerHtml = "AI generation unavailable. Puter requires connection.";
           }
         } catch (aiError) {
           console.error("Puter AI error:", aiError);
@@ -286,7 +286,7 @@ ${queryText}`;
       } else {
         finalAnswerHtml = "I couldn't find any relevant school documents to answer your question.";
       }
-      
+
       setMessages((prev) => {
         const newMessages = [...prev];
         newMessages[newMessages.length - 1] = {
@@ -356,9 +356,8 @@ ${queryText}`;
 
         {/* Sidebar */}
         <div
-          className={`fixed inset-y-0 left-0 z-40 w-72 transform border-r border-border bg-background pt-16 transition-transform duration-300 ease-in-out lg:static lg:translate-x-0 ${
-            sidebarOpen ? "translate-x-0" : "-translate-x-full"
-          }`}
+          className={`fixed inset-y-0 left-0 z-40 w-72 transform border-r border-border bg-background pt-16 transition-transform duration-300 ease-in-out lg:static lg:translate-x-0 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"
+            }`}
         >
           <div className="h-full overflow-y-auto p-4">
             <SearchSidebar
@@ -369,18 +368,18 @@ ${queryText}`;
               }}
             />
             <div className="flex flex-col gap-2 p-2 mt-4 border-t border-white/10 pt-4">
-             <Button 
-               variant="ghost" 
-               className="justify-start text-white/60 hover:text-white transition-colors"
-               onClick={clearHistory}
-               disabled={messages.length === 0}
-             >
-               <Trash2 className="mr-2 h-4 w-4" />
-               Clear Chat History
-             </Button>
+              <Button
+                variant="ghost"
+                className="justify-start text-white/60 hover:text-white transition-colors"
+                onClick={clearHistory}
+                disabled={messages.length === 0}
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Clear Chat History
+              </Button>
+            </div>
           </div>
         </div>
-      </div>
 
         {/* Overlay */}
         {sidebarOpen && (
@@ -443,7 +442,7 @@ ${queryText}`;
                 <span className="hidden sm:inline">Send</span>
               </Button>
             </form>
-            
+
             <div className="mt-3 flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground/60">
               <p>Powered by AI · Answers sourced from official DIS documents only</p>
               <Tooltip>
@@ -453,8 +452,8 @@ ${queryText}`;
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="top" className="max-w-[280px] p-3 text-center leading-relaxed">
-                  This service uses artificial intelligence to process your question and 
-                  retrieve relevant passages from official DIS documents. Responses do 
+                  This service uses artificial intelligence to process your question and
+                  retrieve relevant passages from official DIS documents. Responses do
                   not draw from the internet or any external source.
                 </TooltipContent>
               </Tooltip>

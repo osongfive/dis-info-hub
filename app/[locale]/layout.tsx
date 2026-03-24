@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import { Geist, Geist_Mono, Caveat } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
-import './globals.css'
+import '../globals.css'
 import { Footer } from '@/components/footer'
 import { PrivacyBanner } from '@/components/privacy-banner'
 

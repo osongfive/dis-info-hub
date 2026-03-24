@@ -99,7 +99,7 @@ export default function HomePage() {
             <div className="mx-auto max-w-4xl text-center">
               <h1 className="text-balance text-4xl font-bold tracking-tight text-foreground sm:text-5xl lg:text-6xl">
                 Ask{" "}
-                <span 
+                <span
                   className="relative inline-block font-[var(--font-accent)] text-primary"
                   style={{ fontFamily: 'var(--font-accent)' }}
                 >

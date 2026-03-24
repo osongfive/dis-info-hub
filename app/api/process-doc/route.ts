@@ -4,19 +4,21 @@ import { HfInference } from '@huggingface/inference';
 
 import { createClient as createServerClient } from '@/lib/supabase/server';
 
+export const runtime = 'nodejs';
+
 export async function POST(req: Request) {
   let documentId: string | undefined;
-  
+
   try {
     // 1. Verify Authentication
     const userClient = await createServerClient();
     const { data: { user } } = await userClient.auth.getUser();
-    
+
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized. Admin access required.' }, { status: 401 });
     }
 
-    const pdfParse = require('pdf-parse-new');
+    const pdfParse = require('pdf-parse');
     const body = await req.json();
     documentId = body.documentId;
     const fileUrl = body.fileUrl;
@@ -29,7 +31,7 @@ export async function POST(req: Request) {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
     const supabaseSecret = process.env.SUPABASE_SECRET_KEY!;
     const supabase = createClient(supabaseUrl, supabaseSecret);
-    
+
     const hfToken = process.env.HF_ACCESS_TOKEN;
     if (!hfToken) {
       await supabase.from('documents').update({ status: 'error' }).eq('id', documentId);
@@ -46,7 +48,7 @@ export async function POST(req: Request) {
     let text = '';
     // Detect PDF by content-type OR URL extension
     const isPdf = contentType.includes('application/pdf') || fileUrl.toLowerCase().includes('.pdf');
-    
+
     if (isPdf) {
       const data = await pdfParse(buffer);
       text = data.text;
@@ -123,7 +125,7 @@ export async function POST(req: Request) {
     const batchSize = 10;
     for (let i = 0; i < chunks.length; i += batchSize) {
       const batch = chunks.slice(i, i + batchSize);
-      
+
       const embeddings = await Promise.all(
         batch.map(chunkText => hf.featureExtraction({
           model: 'sentence-transformers/all-MiniLM-L6-v2',
@@ -140,8 +142,8 @@ export async function POST(req: Request) {
 
       const { error: insertError } = await supabase.from('document_chunks').insert(chunkRecords);
       if (insertError) throw insertError;
-      
-      console.log(`[process-doc] Inserted batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(chunks.length/batchSize)}`);
+
+      console.log(`[process-doc] Inserted batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(chunks.length / batchSize)}`);
     }
 
     // 4. Update parent document status
@@ -156,7 +158,7 @@ export async function POST(req: Request) {
       try {
         const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SECRET_KEY!);
         await supabase.from('documents').update({ status: 'error' }).eq('id', documentId);
-      } catch (_) {}
+      } catch (_) { }
     }
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
