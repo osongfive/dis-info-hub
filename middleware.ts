@@ -13,5 +13,6 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/', '/(ko|en)/:path*', '/((?!_next|_vercel|.*\\..*).*)']
+  // Exclude /api/*, /_next/*, /_vercel/*, /studio/*, and static files from the i18n middleware
+  matcher: ['/((?!api|_next|_vercel|studio|.*\\..*).*)']
 }
