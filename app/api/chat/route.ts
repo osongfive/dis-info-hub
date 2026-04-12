@@ -1,15 +1,35 @@
-import { NextResponse } from 'next/server';
+import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { HfInference } from '@huggingface/inference';
 import crypto from 'crypto';
+import { rateLimit } from '@/lib/rate-limit';
 
-export async function POST(req: Request) {
+
+export async function POST(req: NextRequest) {
   try {
+    // 0. Rate Limiting
+    const { success, reset } = rateLimit(req, { limit: 15, windowMs: 60000 });
+    if (!success) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { 
+          status: 429,
+          headers: { 'Retry-After': Math.ceil((reset - Date.now()) / 1000).toString() }
+        }
+      );
+    }
+
     const { query, category, searchQuery } = await req.json();
 
     if (!query) {
       return NextResponse.json({ error: 'Missing query param' }, { status: 400 });
     }
+
+    // Input Validation: Limit query length
+    if (query.length > 500) {
+      return NextResponse.json({ error: 'Query is too long (max 500 characters)' }, { status: 400 });
+    }
+
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -112,11 +132,28 @@ export async function POST(req: Request) {
     // Deduplicate sources by title
     const uniqueSources = Array.from(new Map([...docSources, ...calendarSources].map((s: any) => [s.title, s])).values());
 
+    // 6. Security: Define System Prompt Server-Side
+    const systemPrompt = `You are the DIS Information Hub Assistant—an authoritative, helpful, and highly detailed school guide. Your primary mission is to synthesize the provided official school documents into a clear, comprehensive answer.
+
+STRICT LANGUAGE RULE:
+- **IDENTIFY THE LANGUAGE** of the "Student Question" first.
+- **IF THE QUESTION IS IN ENGLISH:** You MUST respond in English.
+- **IF THE QUESTION IS IN KOREAN:** You MUST respond in Korean.
+- NEVER mix languages.
+- **CRITICAL:** DO NOT include any meta-discussion or internal reasoning in your final response.
+
+CONTENT & STYLE RULES:
+- **BE AUTHORITATIVE & DETAILED:** Extract EVERY SPECIFIC DETAIL (exact colors, room numbers, materials, specific times).
+- **STRICT GROUNDING:** Base your answers ONLY on the provided documents.
+- **FORMATTING:** Use bullet points, numbered lists, and **bold** for key terms.
+- **STRUCTURE:** Use "## Headings" to organize long answers.`;
+
     return NextResponse.json({
       context: contextText,
       sources: uniqueSources,
       cached: false,
-      cacheToken: cacheToken
+      cacheToken: cacheToken,
+      systemPrompt: systemPrompt
     });
     
   } catch (error: any) {

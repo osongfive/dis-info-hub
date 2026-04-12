@@ -25,9 +25,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    if (user.email !== 'osongfivestar@gmail.com') {
+    const adminEmail = process.env.ADMIN_EMAIL;
+
+    const isOwner = user.email === adminEmail;
+    const isSystemAdmin = user.app_metadata?.role === 'admin';
+
+    if (!isOwner && !isSystemAdmin) {
       return NextResponse.json({ error: 'Forbidden: Only the system owner can manage access requests' }, { status: 403 });
     }
+
 
     // 2. Fetch Request Details
     const { data: request, error: fetchError } = await supabaseServer

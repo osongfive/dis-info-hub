@@ -1,4 +1,6 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
+import { rateLimit } from '@/lib/rate-limit'
+
 import { createClient } from '@supabase/supabase-js';
 import { HfInference } from '@huggingface/inference';
 
@@ -6,7 +8,48 @@ import { createClient as createServerClient } from '@/lib/supabase/server';
 
 export const runtime = 'nodejs';
 
-export async function POST(req: Request) {
+function isUrlSafe(urlStr: string): boolean {
+  try {
+    const url = new URL(urlStr);
+    if (url.protocol !== 'https:') return false;
+    
+    const hostname = url.hostname.toLowerCase();
+    
+    // Block localhost and private IP ranges
+    const privatePatterns = [
+      /^localhost$/,
+      /^127\./,
+      /^10\./,
+      /^172\.(1[6-9]|2[0-9]|3[0-1])\./,
+      /^192\.168\./,
+      /^169\.254\./, // Link-local / Cloud metadata
+      /^0\./,
+      /^::1$/,
+      /^fc00:/,
+      /^fe80:/
+    ];
+    
+    return !privatePatterns.some(pattern => pattern.test(hostname));
+  } catch {
+    return false;
+  }
+}
+
+
+export async function POST(req: NextRequest) {
+  // Apply rate limiting: 3 requests per hour for document processing
+  const { success, reset } = rateLimit(req, { limit: 3, windowMs: 3600 * 1000 });
+  if (!success) {
+    return NextResponse.json(
+      { error: 'Too many document processing requests. Please try again later.' },
+      { 
+        status: 429,
+        headers: { 'Retry-After': Math.ceil((reset - Date.now()) / 1000).toString() }
+      }
+    );
+  }
+
+
   let documentId: string | undefined;
 
   try {
@@ -15,8 +58,15 @@ export async function POST(req: Request) {
     const { data: { user } } = await userClient.auth.getUser();
 
     if (!user) {
-      return NextResponse.json({ error: 'Unauthorized. Admin access required.' }, { status: 401 });
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+
+    // RBAC: Check for admin role in metadata
+    const userRole = (user.app_metadata?.role as string) || (user.user_metadata?.role as string);
+    if (userRole !== 'admin') {
+      return NextResponse.json({ error: 'Forbidden. Admin access required.' }, { status: 403 });
+    }
+
 
     const pdfParse = require('pdf-parse');
     const body = await req.json();
@@ -26,6 +76,12 @@ export async function POST(req: Request) {
     if (!documentId || !fileUrl) {
       return NextResponse.json({ error: 'Missing documentId or fileUrl' }, { status: 400 });
     }
+
+    // 3. SSRF Protection: Validate the fileUrl
+    if (!isUrlSafe(fileUrl)) {
+      return NextResponse.json({ error: 'Invalid or unsafe fileUrl provided' }, { status: 400 });
+    }
+
 
     // 2. Initialize Service Client for privileged operations
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;

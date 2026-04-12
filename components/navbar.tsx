@@ -67,11 +67,36 @@ export function Navbar() {
         </div>
 
         <div className="flex items-center gap-3">
-          <Link href={user ? "/admin" : "/auth/login"} className="hidden md:block">
-            <Button variant="outline" size="sm">
-              {user ? "Admin Dashboard" : "Admin Sign In"}
-            </Button>
-          </Link>
+          {user ? (
+            <>
+              {((user.app_metadata?.role === 'admin') || (user.user_metadata?.role === 'admin')) && (
+                <Link href="/admin" className="hidden md:block">
+                  <Button variant="outline" size="sm">
+                    Admin Dashboard
+                  </Button>
+                </Link>
+              )}
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="hidden md:block"
+                onClick={async () => {
+                  const supabase = (await import("@/lib/supabase/client")).createClient();
+                  await supabase.auth.signOut();
+                  window.location.reload();
+                }}
+              >
+                Sign Out
+              </Button>
+            </>
+          ) : (
+            <Link href="/auth/login" className="hidden md:block">
+              <Button variant="outline" size="sm">
+                Admin Sign In
+              </Button>
+            </Link>
+          )}
+
 
           {/* Mobile menu button */}
           <button

@@ -34,13 +34,30 @@ export async function updateSession(request: NextRequest, response?: NextRespons
     data: { user },
   } = await supabase.auth.getUser()
 
-  // Protect the /admin route - redirect to login if not authenticated
-  if (request.nextUrl.pathname.startsWith('/admin') && !user) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/auth/login'
-    url.searchParams.set('redirect', request.nextUrl.pathname)
-    return NextResponse.redirect(url)
+  // Protect the /admin route - redirect to login if not authenticated or not an admin
+  // Match /admin or localized paths like /en/admin, /ko/admin
+  const isAdminPath = request.nextUrl.pathname === '/admin' || 
+                      request.nextUrl.pathname.startsWith('/admin/') ||
+                      request.nextUrl.pathname.match(/\/(en|ko)\/admin(\/.*)?$/);
+
+  if (isAdminPath) {
+
+    if (!user) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/auth/login'
+      url.searchParams.set('redirect', request.nextUrl.pathname)
+      return NextResponse.redirect(url)
+    }
+
+    // Role Check: Ensure user has 'admin' privilege
+    const userRole = (user.app_metadata?.role as string) || (user.user_metadata?.role as string);
+    if (userRole !== 'admin') {
+      const url = request.nextUrl.clone()
+      url.pathname = '/' // Redirect unauthorized non-admins to home
+      return NextResponse.redirect(url)
+    }
   }
+
 
   return supabaseResponse
 }
