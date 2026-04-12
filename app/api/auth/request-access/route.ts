@@ -1,9 +1,23 @@
-import { NextResponse } from 'next/server';
+import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { Resend } from 'resend';
+import { rateLimit } from '@/lib/rate-limit';
 
-export async function POST(req: Request) {
+
+export async function POST(req: NextRequest) {
   try {
+    // 0. Rate Limiting: Strict limit for access requests (5 per hour)
+    const { success, reset } = rateLimit(req, { limit: 5, windowMs: 3600000 });
+    if (!success) {
+      return NextResponse.json(
+        { error: 'Too many access requests. Please try again later.' },
+        { 
+          status: 429,
+          headers: { 'Retry-After': Math.ceil((reset - Date.now()) / 1000).toString() }
+        }
+      );
+    }
+
     const { name, email, reason } = await req.json();
 
     if (!name || !email || !reason) {
@@ -25,9 +39,11 @@ export async function POST(req: Request) {
 
     // 1. Initialize Resend
     const resendApiKey = process.env.RESEND_API_KEY;
-    const adminEmail = 'osongfivestar@gmail.com';
+    const adminEmail = process.env.ADMIN_EMAIL;
+
     
-    if (resendApiKey) {
+    if (resendApiKey && adminEmail) {
+
       const resend = new Resend(resendApiKey);
       
       try {

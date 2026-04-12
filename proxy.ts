@@ -7,10 +7,11 @@ const intlMiddleware = createMiddleware({
   defaultLocale: 'en'
 });
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const response = intlMiddleware(request);
   return await updateSession(request, response as any);
 }
+
 
 export const config = {
   // Exclude /api/*, /_next/*, /_vercel/*, /studio/*, and static files from the i18n middleware
