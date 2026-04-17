@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { HfInference } from '@huggingface/inference';
 import crypto from 'crypto';
 import { rateLimit } from '@/lib/rate-limit';
+import Groq from 'groq-sdk';
 
 
 export async function POST(req: NextRequest) {
@@ -35,8 +36,12 @@ export async function POST(req: NextRequest) {
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
     const supabase = createClient(supabaseUrl, supabaseAnonKey);
     
-    // Generate a cache token to secure the /api/cache-answer endpoint
-    const internalSecret = process.env.SUPABASE_SECRET_KEY || 'dis-internal-secret';
+    // Validate that the secret key is configured (no fallback — fail loudly)
+    const internalSecret = process.env.SUPABASE_SECRET_KEY;
+    if (!internalSecret) {
+      console.error('SUPABASE_SECRET_KEY is not configured');
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
+    }
     const cacheToken = crypto.createHmac('sha256', internalSecret).update(query.trim()).digest('hex');
     
     const hfToken = process.env.HF_ACCESS_TOKEN;
@@ -62,7 +67,23 @@ export async function POST(req: NextRequest) {
 
     // 2. Parallelize: Embedding generation and Logging
     // Use searchQuery (translated) if provided, otherwise use original query
-    const textToEmbed = searchQuery || query;
+    let textToEmbed = searchQuery || query;
+    const isKorean = /[ㄱ-ㅎㅏ-ㅣ가-힣]/.test(query);
+    const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+    
+    if (isKorean && !searchQuery) {
+      try {
+        const transRes = await groq.chat.completions.create({
+          model: 'llama-3.1-8b-instant', // Fast model for simple translation
+          messages: [{ role: 'user', content: `Translate this school-related question into a concise English search query for a document database. Just provide the English translation, nothing else.\n\nQuestion: ${query}` }]
+        });
+        if (transRes.choices?.[0]?.message?.content) {
+          textToEmbed = transRes.choices[0].message.content.trim();
+        }
+      } catch (e) {
+        console.warn("Groq translation failed", e);
+      }
+    }
     
     const [embedding] = await Promise.all([
       hf.featureExtraction({
@@ -148,12 +169,87 @@ CONTENT & STYLE RULES:
 - **FORMATTING:** Use bullet points, numbered lists, and **bold** for key terms.
 - **STRUCTURE:** Use "## Headings" to organize long answers.`;
 
-    return NextResponse.json({
-      context: contextText,
-      sources: uniqueSources,
-      cached: false,
-      cacheToken: cacheToken,
-      systemPrompt: systemPrompt
+    // 7. Triple-Level Guard (Smart Routing with Streaming)
+    const modelChain = [
+      'llama-3.3-70b-versatile',
+      'mixtral-8x7b-32768',
+      'llama-3.1-8b-instant'
+    ];
+
+    let aiStream: any = null;
+
+    const messages = [
+      { role: 'system' as const, content: systemPrompt },
+      { role: 'user' as const, content: `Document Context:\n${contextText}\n\nStudent Question:\n${query}` }
+    ];
+
+    for (const model of modelChain) {
+      try {
+        aiStream = await groq.chat.completions.create({
+          model: model,
+          messages: messages,
+          temperature: 0.1, // Keep answers highly factual
+          stream: true,
+        });
+        break; // Success! Exit the fallback loop.
+      } catch (error: any) {
+        if (error?.status === 429) {
+          console.warn(`[Groq] Rate limited on ${model}, falling back to next model...`);
+          continue; // Try the next model
+        }
+        console.error(`[Groq] Error on ${model}:`, error);
+        throw error; // If it's a real error (like 500 or auth), fail the request.
+      }
+    }
+
+    if (!aiStream) {
+      throw new Error("All AI models are currently overwhelmed or unavailable.");
+    }
+
+    // 8. Stream the response and cache when finished
+    const stream = new ReadableStream({
+      async start(controller) {
+        const encoder = new TextEncoder();
+        
+        // Output sources first so the UI can display them immediately
+        controller.enqueue(encoder.encode(JSON.stringify({ type: 'init', sources: uniqueSources }) + '\n'));
+        
+        let fullAnswer = "";
+        
+        try {
+          for await (const chunk of aiStream) {
+            const content = chunk.choices[0]?.delta?.content || "";
+            if (content) {
+              fullAnswer += content;
+              controller.enqueue(encoder.encode(JSON.stringify({ type: 'chunk', text: content }) + '\n'));
+            }
+          }
+        } catch (streamErr) {
+          console.error("Error while streaming chunks:", streamErr);
+        }
+
+        // Cache Answer asynchronously after stream finishes
+        if (query.trim() && fullAnswer.trim()) {
+          supabase.from('search_cache').insert({
+            query_text: query.trim(),
+            answer_text: fullAnswer,
+            sources: uniqueSources,
+            created_by: 'system_router' 
+          }).then(({ error }) => {
+            if (error) console.error("Cache save error:", error);
+          });
+        }
+        
+        controller.close();
+      }
+    });
+
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'application/x-ndjson',
+        'Cache-Control': 'no-cache, no-transform',
+        'Connection': 'keep-alive',
+      },
     });
     
   } catch (error: any) {

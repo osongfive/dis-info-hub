@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { createClient as createServerClient } from '@/lib/supabase/server';
 import ICAL from 'ical.js';
 
 export const runtime = 'nodejs';
@@ -8,6 +9,16 @@ export async function POST(req: Request) {
   console.log('[CALENDAR_SYNC] Sync process started (using ical.js)');
   
   try {
+    // Auth check: Verify the user is an admin
+    const authClient = await createServerClient();
+    const { data: { user } } = await authClient.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const userRole = (user.app_metadata?.role as string) || (user.user_metadata?.role as string);
+    if (userRole !== 'admin') {
+      return NextResponse.json({ error: 'Forbidden. Admin access required.' }, { status: 403 });
+    }
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseServiceKey = process.env.SUPABASE_SECRET_KEY;
 

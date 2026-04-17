@@ -55,8 +55,22 @@ export async function POST(req: Request) {
 
     if (updateError) throw updateError;
 
-    // 4. Send Email if Approved
+    // 4. Send Email and Grant Role if Approved
     if (action === 'approve') {
+      // Find user and grant admin role
+      const { data: { users }, error: listError } = await supabaseServer.auth.admin.listUsers();
+      if (!listError && users) {
+        const user = users.find(u => u.email === request.email);
+        if (user) {
+          await supabaseServer.auth.admin.updateUserById(user.id, {
+            app_metadata: { role: 'admin' }
+          });
+          console.log(`[APPROVAL] Granted admin role to ${request.email}`);
+        } else {
+          console.warn(`[APPROVAL] User ${request.email} not found in Auth system yet. Role not granted.`);
+        }
+      }
+
       const resendApiKey = process.env.RESEND_API_KEY;
       if (resendApiKey) {
         const resend = new Resend(resendApiKey);

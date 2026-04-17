@@ -23,10 +23,25 @@ export function PrivacyRightsForm() {
     e.preventDefault();
     setIsSubmitting(true);
 
-    // Simulate sending to info@dis.sc.kr
-    // In a real app, this would call an API route that uses Resend/Nodemailer/SendGrid
+    const formData = new FormData(e.currentTarget);
+    const data = {
+      name: formData.get("name"),
+      email: formData.get("email"),
+      requestType: formData.get("requestType"),
+      details: formData.get("details")
+    };
+
     try {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const response = await fetch("/api/privacy-request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to submit");
+      }
+
       setIsSubmitted(true);
       toast.success("Privacy request submitted successfully.");
     } catch (error) {

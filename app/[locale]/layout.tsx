@@ -33,11 +33,14 @@ export const metadata: Metadata = {
 
 export default function RootLayout({
   children,
+  params,
 }: Readonly<{
-  children: React.ReactNode
+  children: React.ReactNode;
+  params: any;
 }>) {
+  const locale = params?.locale || "en";
   return (
-    <html lang="en">
+    <html lang={locale}>
       <body className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased ${_caveat.variable}`}>
         <div className="flex min-h-screen flex-col">
           <main className="flex-1">{children}</main>
@@ -45,7 +48,6 @@ export default function RootLayout({
         </div>
         <PrivacyBanner />
         <Analytics />
-        <script src="https://js.puter.com/v2/" defer></script>
       </body>
     </html>
   )

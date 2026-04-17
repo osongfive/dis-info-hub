@@ -21,6 +21,10 @@ export function rateLimit(req: NextRequest, config: RateLimitConfig = { limit: 1
   const key = `ratelimit_${ip}`;
   const now = Date.now();
   
+  if (cache.size > 100) {
+    cleanupRateLimitCache();
+  }
+  
   const entry = cache.get(key);
   
   if (!entry || now > entry.expires) {

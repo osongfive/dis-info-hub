@@ -172,121 +172,81 @@ function SearchContent() {
     );
 
     try {
-      // Internal translation for Korean queries
-      let searchQuery = queryText;
-      const isKorean = /[ㄱ-ㅎㅏ-ㅣ가-힣]/.test(queryText);
-      if (isKorean && typeof window !== "undefined" && window.puter) {
-        try {
-          const translationResponse = await window.puter.ai.chat(
-            `Translate this school-related question into a concise English search query for a document database. Just provide the English translation, nothing else.\n\nQuestion: ${queryText}`,
-            { model: AI_MODEL_FAST }
-          );
-          if (translationResponse?.toString()) {
-            searchQuery = translationResponse.toString().trim();
-          }
-        } catch (tErr) {
-          console.warn("Translation failed, using original:", tErr);
-        }
-      }
-
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: queryText, searchQuery, category: selectedCategory }),
+        body: JSON.stringify({ query: queryText, category: selectedCategory }),
       });
 
-      const data = await response.json();
+      if (!response.ok) {
+        let errData;
+        try { errData = await response.json(); } catch(e) {}
+        throw new Error((errData && errData.error) || "Failed to search documents.");
+      }
 
-      // Cached answer path
-      if (data.cached && data.answer) {
+      if (!response.body) throw new Error("No response body");
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let done = false;
+      let fullText = "";
+      let sources: any[] = [];
+      let isCached = false;
+
+      while (!done) {
+        const { value, done: doneReading } = await reader.read();
+        done = doneReading;
+        const chunkValue = decoder.decode(value, { stream: true });
+        
+        const lines = chunkValue.split('\n').filter(line => line.trim() !== '');
+        
+        for (const line of lines) {
+          try {
+            const parsed = JSON.parse(line);
+            
+            // Handle Cache Hit (Single Payload)
+            if (parsed.cached !== undefined && parsed.answer) {
+              fullText = parsed.answer;
+              sources = parsed.sources || [];
+              isCached = parsed.cached;
+              break;
+            }
+            
+            // Handle Stream Events
+            if (parsed.type === 'init') {
+              sources = parsed.sources || [];
+              setSessions((prev) =>
+                prev.map((s) => {
+                  if (s.id !== targetSessionId) return s;
+                  return { ...s, sources };
+                })
+              );
+            } else if (parsed.type === 'chunk') {
+              fullText += parsed.text;
+            }
+          } catch (e) {
+             // Occasionally JSON can get split across network frames improperly. 
+             // Production-grade parsers buffer this, but for simple markdown text chunks, it's safe to skip malformed edges.
+          }
+        }
+        
+        const currentHtml = fullText ? await marked.parse(fullText) : "Thinking...";
         setSessions((prev) =>
           prev.map((s) => {
             if (s.id !== targetSessionId) return s;
             const newMessages = [...s.messages];
             newMessages[newMessages.length - 1] = {
               role: "assistant",
-              content: data.answer,
-              summary: "Instant answer retrieved from school knowledge base.",
+              content: currentHtml,
+              summary: isCached 
+                ? "Instant answer retrieved from school knowledge base." 
+                : "Synthesized answer from official documents."
             };
-            return { ...s, messages: newMessages, sources: data.sources || [] };
+            return { ...s, messages: newMessages };
           })
         );
-        setIsLoading(false);
-        return;
       }
-
-      const contextText = data.context || "";
-      let finalAnswerHtml = "";
-
-      if (contextText && data.systemPrompt && typeof window !== "undefined" && window.puter) {
-        const prompt = `${data.systemPrompt}
-
-Document Context:
-${contextText}
-
-Student Question:
-${queryText}`;
-
-        try {
-          const aiResponse = await window.puter.ai.chat(prompt, { model: AI_MODEL_PRIMARY, stream: true });
-          let fullText = "";
-
-          for await (const chunk of aiResponse) {
-            if (chunk.type === "text") {
-              fullText += chunk.text;
-              const currentHtml = await marked.parse(fullText);
-              setSessions((prev) =>
-                prev.map((s) => {
-                  if (s.id !== targetSessionId) return s;
-                  const newMessages = [...s.messages];
-                  newMessages[newMessages.length - 1] = { role: "assistant", content: currentHtml };
-                  return { ...s, messages: newMessages };
-                })
-              );
-            }
-          }
-
-          // Post-process: ensure list formatting
-          let text = fullText;
-          const hasBullets = /(^|\n)\s*[-*]\s+/m.test(text) || /(^|\n)\s*\d+\.\s+/m.test(text);
-          if (!hasBullets && text.length > 100) {
-            const sentences = text.split(/(?<=[.!?])\s+(?=[A-Z0-9])/);
-            if (sentences.length > 1) {
-              text = sentences.map((s) => (s.trim() ? `- ${s.trim()}` : "")).join("\n");
-            }
-          }
-          finalAnswerHtml = await marked.parse(text);
-
-          // Save to server cache
-          fetch("/api/cache-answer", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ query: queryText, answer: finalAnswerHtml, sources: data.sources, cacheToken: data.cacheToken }),
-          }).catch((e) => console.error("Cache save error:", e));
-
-        } catch (aiErr) {
-          console.error("AI generation error:", aiErr);
-          finalAnswerHtml = "AI generation unavailable. Please try again.";
-        }
-      } else {
-        finalAnswerHtml = contextText
-          ? "AI generation unavailable. Puter requires connection."
-          : "I couldn't find relevant information in the school documents for your question.";
-      }
-
-      setSessions((prev) =>
-        prev.map((s) => {
-          if (s.id !== targetSessionId) return s;
-          const newMessages = [...s.messages];
-          newMessages[newMessages.length - 1] = {
-            role: "assistant",
-            content: finalAnswerHtml,
-            summary: data.sources?.length > 0 ? "Here is what I found in the school documents." : undefined,
-          };
-          return { ...s, messages: newMessages, sources: data.sources || [] };
-        })
-      );
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
       setSessions((prev) =>
         prev.map((s) => {

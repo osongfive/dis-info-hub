@@ -12,7 +12,10 @@ export async function POST(req: Request) {
     }
 
     // Security: Verify the cacheToken to ensure the request originated from our /api/chat
-    const internalSecret = process.env.SUPABASE_SECRET_KEY || 'dis-internal-secret';
+    const internalSecret = process.env.SUPABASE_SECRET_KEY;
+    if (!internalSecret) {
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
+    }
     const expectedToken = crypto.createHmac('sha256', internalSecret).update(query.trim()).digest('hex');
 
     if (cacheToken !== expectedToken) {
