@@ -1,9 +1,6 @@
 # DIS Information Hub
 
 <div align="center">
-  <img src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/image-TH2mD7vKTNapMxqdlTiQ68uglRp9g8.png" alt="DIS Campus" width="100%" />
-  <br />
-  <br />
   <p><strong>The Intelligence Layer for Daegu International School.</strong></p>
   <i>"A centralized, AI-powered single source of truth for students, parents, and staff."</i>
   <br />
