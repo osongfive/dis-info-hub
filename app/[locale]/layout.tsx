@@ -31,14 +31,15 @@ export const metadata: Metadata = {
   },
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
   params,
 }: Readonly<{
   children: React.ReactNode;
-  params: any;
+  params: Promise<any>;
 }>) {
-  const locale = params?.locale || "en";
+  const resolvedParams = await params;
+  const locale = resolvedParams?.locale || "en";
   return (
     <html lang={locale}>
       <body className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased ${_caveat.variable}`}>
