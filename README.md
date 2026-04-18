@@ -33,12 +33,12 @@ The **DIS Information Hub** was created to bridge the information gap within the
 This platform acts as a smart, natural-language interface for all school knowledge. It doesn't just "search" for keywords; it understands the intent of the user and provides a synthesized, verified answer.
 
 ### 😊 Who is this for?
-- **Students:** To quickly check exam schedules, club requirements, or dress code policies.
+- **Students:** To check school policies and upcoming events to make sure they aren't missing out.
 - **Parents:** To find information on school events and administrative procedures.
 - **Staff:** To access a "single source of truth" for consistent policy internal application.
 
 ### ✍️ Author
-I'm **[osongfive](https://github.com/osongfive)**. I built this as a high-performance, secure, and privacy-first solution for Daegu International School. My goal was to demonstrate how modern AI (RAG) can be implemented with "Zero-Cost" infrastructure while maintaining enterprise-level standards.
+I'm **[Jayden](https://github.com/osongfive)**. I built this as a high-performance, secure, and privacy-first solution for Daegu International School. My goal was to make sure students, parents, and staff members of DIS to have a stable and easy way to access information about the school because at the moment, finding information you want is not easy. I also wanted to demonstrate how modern AI (RAG) can be implemented with "Zero-Cost" infrastructure while maintaining enterprise-level standards.
 
 ## 🛡️ Technical Architecture
 
