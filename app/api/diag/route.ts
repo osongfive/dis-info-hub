@@ -1,44 +1,31 @@
 import { NextResponse } from 'next/server';
 
 export async function GET() {
+  const rawUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+  
   const diagnostics: any = {
-    env_checks: {
-      NEXT_PUBLIC_SUPABASE_URL: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    url_analysis: {
+      raw: rawUrl,
+      length: rawUrl.length,
+      // Check every single character code to find hidden non-ASCII characters
+      charCodes: rawUrl.split('').map(c => c.charCodeAt(0)),
+      isClean: /^[a-zA-Z0-9\-\.\:\/]+$/.test(rawUrl),
     },
-    raw_fetch_google: "pending",
-    raw_fetch_supabase: "pending",
-    url_details: {
-      length: process.env.NEXT_PUBLIC_SUPABASE_URL?.length || 0,
-      startsWithHttps: process.env.NEXT_PUBLIC_SUPABASE_URL?.startsWith('https://'),
-      hasWhitespace: /\s/.test(process.env.NEXT_PUBLIC_SUPABASE_URL || ''),
-    }
+    raw_fetch_supabase: "pending"
   };
 
-  // Test 1: General Internet
   try {
-    const res = await fetch('https://www.google.com', { method: 'HEAD' });
-    diagnostics.raw_fetch_google = `Success! Status: ${res.status}`;
-  } catch (e: any) {
-    diagnostics.raw_fetch_google = `Failed: ${e.message}`;
-  }
-
-  // Test 2: Raw Supabase Connection
-  try {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    if (!url) throw new Error("URL missing");
-    
-    // We try to fetch the REST health check
-    const res = await fetch(`${url.replace(/\/$/, '')}/rest/v1/`, {
+    // We try fetching with a SANITIZED version of the URL
+    const cleanUrl = rawUrl.trim().replace(/[^\x20-\x7E]/g, ""); 
+    const res = await fetch(`${cleanUrl}/rest/v1/`, {
       method: 'GET',
       headers: {
-        'apikey': process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',
+        'apikey': (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '').trim().replace(/[^\x20-\x7E]/g, ""),
       }
     });
-    diagnostics.raw_fetch_supabase = `Success! Status: ${res.status}`;
+    diagnostics.raw_fetch_supabase = `Success with sanitized URL! Status: ${res.status}`;
   } catch (e: any) {
-    diagnostics.raw_fetch_supabase = `Failed: ${e.message}`;
-    diagnostics.raw_fetch_supabase_stack = e.stack;
+    diagnostics.raw_fetch_supabase = `Failed even with sanitation: ${e.message}`;
   }
 
   return NextResponse.json(diagnostics);
