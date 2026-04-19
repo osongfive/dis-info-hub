@@ -1,38 +1,44 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import Groq from 'groq-sdk';
 
 export async function GET() {
-  const diagnostics = {
-    env: {
+  const diagnostics: any = {
+    env_checks: {
       NEXT_PUBLIC_SUPABASE_URL: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
       NEXT_PUBLIC_SUPABASE_ANON_KEY: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-      SUPABASE_SECRET_KEY: !!process.env.SUPABASE_SECRET_KEY,
-      GROQ_API_KEY: !!process.env.GROQ_API_KEY,
-      HF_ACCESS_TOKEN: !!process.env.HF_ACCESS_TOKEN,
     },
-    database: "checking...",
-    groq: "checking...",
+    raw_fetch_google: "pending",
+    raw_fetch_supabase: "pending",
+    url_details: {
+      length: process.env.NEXT_PUBLIC_SUPABASE_URL?.length || 0,
+      startsWithHttps: process.env.NEXT_PUBLIC_SUPABASE_URL?.startsWith('https://'),
+      hasWhitespace: /\s/.test(process.env.NEXT_PUBLIC_SUPABASE_URL || ''),
+    }
   };
 
+  // Test 1: General Internet
   try {
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    );
-    const { count, error } = await supabase.from('documents').select('*', { count: 'exact', head: true });
-    if (error) throw error;
-    diagnostics.database = `Connected! Total documents indexed: ${count}`;
+    const res = await fetch('https://www.google.com', { method: 'HEAD' });
+    diagnostics.raw_fetch_google = `Success! Status: ${res.status}`;
   } catch (e: any) {
-    diagnostics.database = `Error: ${e.message}`;
+    diagnostics.raw_fetch_google = `Failed: ${e.message}`;
   }
 
+  // Test 2: Raw Supabase Connection
   try {
-    const groq = new Groq({ apiKey: process.env.GROQ_API_KEY || 'missing' });
-    const models = await groq.models.list();
-    diagnostics.groq = `Connected! Found ${models.data.length} models.`;
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    if (!url) throw new Error("URL missing");
+    
+    // We try to fetch the REST health check
+    const res = await fetch(`${url.replace(/\/$/, '')}/rest/v1/`, {
+      method: 'GET',
+      headers: {
+        'apikey': process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',
+      }
+    });
+    diagnostics.raw_fetch_supabase = `Success! Status: ${res.status}`;
   } catch (e: any) {
-    diagnostics.groq = `Error: ${e.message}`;
+    diagnostics.raw_fetch_supabase = `Failed: ${e.message}`;
+    diagnostics.raw_fetch_supabase_stack = e.stack;
   }
 
   return NextResponse.json(diagnostics);
