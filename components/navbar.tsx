@@ -2,24 +2,28 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { usePathname } from "next/navigation";
+import { usePathname, useParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Menu, X } from "lucide-react";
+import { Menu, X, LayoutDashboard, LogOut, LogIn } from "lucide-react";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 
-const navLinks = [
-  { href: "/", label: "Home" },
-  { href: "/search", label: "Ask a Question" },
-  { href: "/documents", label: "Documents" },
-  { href: "/about", label: "About" },
-];
-
 export function Navbar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const params = useParams();
+  const locale = params?.locale || "en";
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isNavigating, setIsNavigating] = useState(false);
   const [user, setUser] = useState<any>(null);
+
+  const navLinks = [
+    { href: `/${locale}`, label: "Home" },
+    { href: `/${locale}/search`, label: "Ask a Question" },
+    { href: `/${locale}/documents`, label: "Documents" },
+    { href: `/${locale}/about`, label: "About" },
+  ];
 
   useEffect(() => {
     const supabase = createClient();
@@ -29,15 +33,25 @@ export function Navbar() {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
+      if (_event === 'SIGNED_IN') {
+        // Force a refresh when signing in to ensure all components see the session
+        router.refresh();
+      }
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [router]);
+
+  const handleAdminRedirect = () => {
+    setIsNavigating(true);
+    // Using window.location.href for the admin dashboard ensures a clean session state
+    window.location.href = `/${locale}/admin`;
+  };
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <nav className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-        <Link href="/" className="flex items-center gap-2">
+        <Link href={`/${locale}`} className="flex items-center gap-2">
           <Image
             src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/image-nneYszLByQKmjNyUiQ21g57NX3XfeK.png"
             alt="Daegu International School"
@@ -69,29 +83,34 @@ export function Navbar() {
         <div className="flex items-center gap-3">
           {user ? (
             <>
-              {((user.app_metadata?.role === 'admin') || (user.user_metadata?.role === 'admin')) && (
-                <Link href="/admin" className="hidden md:block">
-                  <Button variant="outline" size="sm">
-                    Admin Dashboard
-                  </Button>
-                </Link>
-              )}
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="hidden gap-2 md:flex"
+                onClick={handleAdminRedirect}
+                disabled={isNavigating}
+              >
+                <LayoutDashboard className="h-4 w-4" />
+                {isNavigating ? "Loading..." : "Admin Dashboard"}
+              </Button>
               <Button 
                 variant="ghost" 
                 size="sm" 
-                className="hidden md:block"
+                className="hidden gap-2 md:flex"
                 onClick={async () => {
                   const supabase = (await import("@/lib/supabase/client")).createClient();
                   await supabase.auth.signOut();
-                  window.location.reload();
+                  window.location.href = `/${locale}`;
                 }}
               >
+                <LogOut className="h-4 w-4" />
                 Sign Out
               </Button>
             </>
           ) : (
-            <Link href="/auth/login" className="hidden md:block">
-              <Button variant="outline" size="sm">
+            <Link href={`/${locale}/auth/login`} className="hidden md:block">
+              <Button variant="outline" size="sm" className="gap-2">
+                <LogIn className="h-4 w-4" />
                 Admin Sign In
               </Button>
             </Link>
@@ -134,12 +153,22 @@ export function Navbar() {
               </Link>
             ))}
             <Link
-              href={user ? "/admin" : "/auth/login"}
+              href={user ? `/${locale}/admin` : `/${locale}/auth/login`}
               className="block"
               onClick={() => setMobileMenuOpen(false)}
             >
-              <Button variant="outline" size="sm" className="mt-2 w-full">
-                {user ? "Admin Dashboard" : "Admin Sign In"}
+              <Button variant="outline" size="sm" className="mt-2 w-full gap-2">
+                {user ? (
+                  <>
+                    <LayoutDashboard className="h-4 w-4" />
+                    Admin Dashboard
+                  </>
+                ) : (
+                  <>
+                    <LogIn className="h-4 w-4" />
+                    Admin Sign In
+                  </>
+                )}
               </Button>
             </Link>
           </div>

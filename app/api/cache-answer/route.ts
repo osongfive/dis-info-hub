@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createAdminClient } from '@/lib/supabase/server';
 import { HfInference } from '@huggingface/inference';
 import crypto from 'crypto';
 
@@ -22,9 +22,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Invalid cache token' }, { status: 403 });
     }
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const supabaseSecret = process.env.SUPABASE_SECRET_KEY!;
-    const supabase = createClient(supabaseUrl, supabaseSecret);
+    const supabase = createAdminClient();
 
     const hfToken = process.env.HF_ACCESS_TOKEN;
     if (!hfToken) {

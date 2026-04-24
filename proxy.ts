@@ -12,8 +12,7 @@ export async function proxy(request: NextRequest) {
   return await updateSession(request, response as any);
 }
 
-
 export const config = {
-  // Exclude /api/*, /_next/*, /_vercel/*, /studio/*, and static files from the i18n middleware
+  // Exclude /api/*, /_next/*, /_vercel/*, /studio/*, and static files
   matcher: ['/((?!api|_next|_vercel|studio|.*\\..*).*)']
 }

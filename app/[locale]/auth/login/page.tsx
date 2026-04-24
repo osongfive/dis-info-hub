@@ -7,9 +7,9 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import Link from 'next/link'
 import Image from 'next/image'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams, useParams } from 'next/navigation'
 import { useState, Suspense } from 'react'
-import { Lock, Mail, ArrowLeft, CheckCircle2 } from 'lucide-react'
+import { Lock, Mail, ArrowLeft } from 'lucide-react'
 import { Checkbox } from "@/components/ui/checkbox"
 
 function LoginForm() {
@@ -20,7 +20,10 @@ function LoginForm() {
   const [isLoading, setIsLoading] = useState(false)
   const router = useRouter()
   const searchParams = useSearchParams()
-  const redirectTo = searchParams.get('redirect') || '/admin'
+  const params = useParams()
+  
+  const locale = params?.locale || 'en'
+  const redirectTo = searchParams.get('redirect') || `/${locale}/admin`
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -43,10 +46,12 @@ function LoginForm() {
     }
   }
 
+
+
   return (
     <div className="flex min-h-svh w-full flex-col items-center justify-center bg-muted/30 p-6 md:p-10">
       <Link
-        href="/"
+        href={`/${locale}`}
         className="absolute left-6 top-6 flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
       >
         <ArrowLeft className="h-4 w-4" />
@@ -74,6 +79,8 @@ function LoginForm() {
             </CardDescription>
           </CardHeader>
           <CardContent>
+
+
             <form onSubmit={handleLogin}>
               <div className="flex flex-col gap-5">
                 <div className="grid gap-2">
@@ -123,7 +130,7 @@ function LoginForm() {
                     </label>
                   </div>
                   <Link 
-                    href="/auth/forgot-password" 
+                    href={`/${locale}/auth/forgot-password`} 
                     className="text-xs text-primary hover:underline"
                   >
                     Forgot password?
@@ -147,10 +154,10 @@ function LoginForm() {
                     <span className="w-full border-t border-border" />
                   </div>
                   <div className="relative flex justify-center text-xs uppercase">
-                    <span className="bg-card px-2 text-muted-foreground">Or</span>
+                    <span className="bg-card px-2 text-muted-foreground">New Admin?</span>
                   </div>
                 </div>
-                <Link href="/auth/request-admin" className="w-full">
+                <Link href={`/${locale}/auth/request-admin`} className="w-full">
                   <Button 
                     type="button" 
                     variant="outline"

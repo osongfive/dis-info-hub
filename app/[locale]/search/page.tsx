@@ -9,70 +9,33 @@ import { Send, Sparkles, Menu, X, Info, PlusCircle, MessageSquare, Trash2 } from
 import { useState, useEffect, Suspense, useRef, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { marked } from "marked";
+import { sanitizeText } from "@/lib/security";
+import { useChatSession } from "@/hooks/use-chat-session";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-declare global {
-  interface Window {
-    puter: any;
-  }
-}
-
 // Input validation constants
 const MAX_INPUT_LENGTH = 1000;
-const SANITIZE_PATTERN = /[<>{}]/g;
-
-// AI Configuration
-const AI_MODEL_PRIMARY = "gpt-4o-mini";
-const AI_MODEL_FAST = "gpt-4o-mini";
-
-// Storage key for multi-session chat history
-const SESSIONS_KEY = "dis-chat-sessions";
-const ACTIVE_SESSION_KEY = "dis-active-session";
-
-function sanitizeInput(input: string): string {
-  return input.trim().slice(0, MAX_INPUT_LENGTH).replace(SANITIZE_PATTERN, "");
-}
-
-// --- Types ---
-interface Message {
-  role: "user" | "assistant";
-  content: string;
-  summary?: string;
-}
-
-interface ChatSession {
-  id: string;
-  title: string;
-  messages: Message[];
-  sources: any[];
-  createdAt: number;
-}
-
-function generateId() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2);
-}
-
-function createSession(firstMessage?: string): ChatSession {
-  return {
-    id: generateId(),
-    title: firstMessage ? firstMessage.slice(0, 40) : "New Chat",
-    messages: [],
-    sources: [],
-    createdAt: Date.now(),
-  };
-}
 
 // --- Main Component ---
 function SearchContent() {
   const searchParams = useSearchParams();
   const initialQuery = searchParams.get("q") || "";
 
-  const [sessions, setSessions] = useState<ChatSession[]>([]);
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const {
+    sessions,
+    setSessions,
+    activeSession,
+    activeSessionId,
+    startNewChat,
+    switchSession,
+    deleteSession,
+    updateSessionById,
+  } = useChatSession(initialQuery);
+
   const [input, setInput] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -82,74 +45,13 @@ function SearchContent() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Derived state for active session
-  const activeSession = sessions.find((s) => s.id === activeSessionId) ?? null;
   const messages = activeSession?.messages ?? [];
   const sources = activeSession?.sources ?? [];
-
-  // ---- Persistence ----
-  // Load sessions from localStorage on mount
-  useEffect(() => {
-    // If there's an initial query from the homepage, start fresh - don't restore old session
-    if (initialQuery) return;
-
-    try {
-      const raw = localStorage.getItem(SESSIONS_KEY);
-      if (raw) {
-        const loaded: ChatSession[] = JSON.parse(raw);
-        if (Array.isArray(loaded) && loaded.length > 0) {
-          setSessions(loaded);
-          const savedActive = localStorage.getItem(ACTIVE_SESSION_KEY);
-          const matchActive = loaded.find((s) => s.id === savedActive);
-          setActiveSessionId(matchActive ? matchActive.id : loaded[0].id);
-          return;
-        }
-      }
-    } catch (e) {
-      console.error("Failed to load sessions", e);
-    }
-  }, []);
-
-  // Save sessions to localStorage on change
-  useEffect(() => {
-    if (sessions.length > 0) {
-      localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
-    }
-    if (activeSessionId) {
-      localStorage.setItem(ACTIVE_SESSION_KEY, activeSessionId);
-    }
-  }, [sessions, activeSessionId]);
 
   // Auto-scroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
-
-  // ---- Session Management ----
-  const startNewChat = useCallback(() => {
-    const session = createSession();
-    setSessions((prev) => [session, ...prev]);
-    setActiveSessionId(session.id);
-    setSidebarOpen(false);
-  }, []);
-
-  const switchSession = useCallback((id: string) => {
-    setActiveSessionId(id);
-    setSidebarOpen(false);
-  }, []);
-
-  const deleteSession = useCallback((id: string) => {
-    setSessions((prev) => {
-      const next = prev.filter((s) => s.id !== id);
-      if (activeSessionId === id) {
-        setActiveSessionId(next.length > 0 ? next[0].id : null);
-      }
-      if (next.length === 0) {
-        localStorage.removeItem(SESSIONS_KEY);
-        localStorage.removeItem(ACTIVE_SESSION_KEY);
-      }
-      return next;
-    });
-  }, [activeSessionId]);
 
   // ---- Core Query Logic ----
   const submitQuery = useCallback(async (queryText: string, sessionId?: string) => {
@@ -159,17 +61,14 @@ function SearchContent() {
     setIsLoading(true);
 
     // Optimistically add user message + loading placeholder
-    setSessions((prev) =>
-      prev.map((s) => {
-        if (s.id !== targetSessionId) return s;
-        const newMessages = [...s.messages];
-        if (newMessages.length === 0 || newMessages[newMessages.length - 1].content !== queryText) {
-          newMessages.push({ role: "user", content: queryText });
-        }
-        newMessages.push({ role: "assistant", content: "Searching documents and generating response..." });
-        return { ...s, messages: newMessages };
-      })
-    );
+    updateSessionById(targetSessionId, (s) => {
+      const newMessages = [...s.messages];
+      if (newMessages.length === 0 || newMessages[newMessages.length - 1].content !== queryText) {
+        newMessages.push({ role: "user", content: queryText });
+      }
+      newMessages.push({ role: "assistant", content: "Searching documents and generating response..." });
+      return { ...s, messages: newMessages };
+    });
 
     try {
       const response = await fetch("/api/chat", {
@@ -197,7 +96,6 @@ function SearchContent() {
         const { value, done: doneReading } = await reader.read();
         done = doneReading;
         const chunkValue = decoder.decode(value, { stream: true });
-        
         const lines = chunkValue.split('\n').filter(line => line.trim() !== '');
         
         for (const line of lines) {
@@ -215,79 +113,58 @@ function SearchContent() {
             // Handle Stream Events
             if (parsed.type === 'init') {
               sources = parsed.sources || [];
-              setSessions((prev) =>
-                prev.map((s) => {
-                  if (s.id !== targetSessionId) return s;
-                  return { ...s, sources };
-                })
-              );
+              updateSessionById(targetSessionId, { sources });
             } else if (parsed.type === 'chunk') {
               fullText += parsed.text;
             }
-          } catch (e) {
-             // Occasionally JSON can get split across network frames improperly. 
-             // Production-grade parsers buffer this, but for simple markdown text chunks, it's safe to skip malformed edges.
-          }
+          } catch (e) {}
         }
         
         const currentHtml = fullText ? await marked.parse(fullText) : "Thinking...";
-        setSessions((prev) =>
-          prev.map((s) => {
-            if (s.id !== targetSessionId) return s;
-            const newMessages = [...s.messages];
-            newMessages[newMessages.length - 1] = {
-              role: "assistant",
-              content: currentHtml,
-              summary: isCached 
-                ? "Instant answer retrieved from school knowledge base." 
-                : "Synthesized answer from official documents."
-            };
-            return { ...s, messages: newMessages };
-          })
-        );
-      }
-    } catch (err: any) {
-      console.error(err);
-      setSessions((prev) =>
-        prev.map((s) => {
-          if (s.id !== targetSessionId) return s;
+        updateSessionById(targetSessionId, (s) => {
           const newMessages = [...s.messages];
           newMessages[newMessages.length - 1] = {
             role: "assistant",
-            content: "Sorry, I encountered an error searching the documents.",
+            content: currentHtml,
+            summary: isCached 
+              ? "Instant answer retrieved from school knowledge base." 
+              : "Synthesized answer from official documents."
           };
           return { ...s, messages: newMessages };
-        })
-      );
+        });
+      }
+    } catch (err: any) {
+      console.error(err);
+      updateSessionById(targetSessionId, (s) => {
+        const newMessages = [...s.messages];
+        newMessages[newMessages.length - 1] = {
+          role: "assistant",
+          content: "Sorry, I encountered an error searching the documents.",
+        };
+        return { ...s, messages: newMessages };
+      });
     } finally {
       setIsLoading(false);
     }
-  }, [activeSessionId, selectedCategory]);
+  }, [activeSessionId, selectedCategory, updateSessionById]);
 
   // Fire initial query from homepage (?q=...)
   useEffect(() => {
     if (initialQuery && !initialQueryFired.current) {
       initialQueryFired.current = true;
-      // Always start a FRESH session for homepage queries
-      const session = createSession(initialQuery);
-      setSessions((prev) => [session, ...prev]);
-      setActiveSessionId(session.id);
-      // We must pass the session ID directly because state hasn't updated yet
+      const session = startNewChat(initialQuery);
       setTimeout(() => submitQuery(initialQuery, session.id), 0);
     }
-  }, [initialQuery, submitQuery]);
+  }, [initialQuery, submitQuery, startNewChat]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const sanitized = sanitizeInput(input);
+    const sanitized = sanitizeText(input, MAX_INPUT_LENGTH);
     if (!sanitized || isLoading) return;
 
-    // If no session exists yet, create one
     let sessionId = activeSessionId;
     if (!sessionId) {
-      const session = createSession(sanitized);
-      setSessions((prev) => [session, ...prev]);
-      setActiveSessionId(session.id);
+      const session = startNewChat(sanitized);
       sessionId = session.id;
     }
 
@@ -297,6 +174,16 @@ function SearchContent() {
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.value.length <= MAX_INPUT_LENGTH) setInput(e.target.value);
+  };
+
+  const onStartNewChat = () => {
+    startNewChat();
+    setSidebarOpen(false);
+  };
+
+  const onSwitchSession = (id: string) => {
+    switchSession(id);
+    setSidebarOpen(false);
   };
 
   return (
@@ -318,16 +205,14 @@ function SearchContent() {
           }`}
         >
           <div className="flex h-full flex-col overflow-hidden p-4">
-            {/* New Chat Button */}
             <Button
               className="w-full justify-start gap-2 mb-4"
-              onClick={startNewChat}
+              onClick={onStartNewChat}
             >
               <PlusCircle className="h-4 w-4" />
               New Chat
             </Button>
 
-            {/* Category Filter */}
             <SearchSidebar
               selectedCategory={selectedCategory}
               onCategoryChange={(cat) => {
@@ -336,7 +221,6 @@ function SearchContent() {
               }}
             />
 
-            {/* Chat History List */}
             {sessions.length > 0 && (
               <div className="mt-4 flex-1 overflow-y-auto">
                 <p className="mb-2 px-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -351,7 +235,7 @@ function SearchContent() {
                           ? "bg-primary/10 text-primary"
                           : "text-muted-foreground hover:bg-muted hover:text-foreground"
                       }`}
-                      onClick={() => switchSession(session.id)}
+                      onClick={() => onSwitchSession(session.id)}
                     >
                       <MessageSquare className="h-3.5 w-3.5 shrink-0" />
                       <span className="flex-1 truncate">{session.title}</span>
@@ -372,7 +256,6 @@ function SearchContent() {
           </div>
         </div>
 
-        {/* Overlay */}
         {sidebarOpen && (
           <div
             className="fixed inset-0 z-30 bg-black/50 lg:hidden"
@@ -380,7 +263,6 @@ function SearchContent() {
           />
         )}
 
-        {/* Main Chat Area */}
         <main className="flex flex-1 flex-col">
           <div className="flex-1 overflow-y-auto p-4 lg:p-6">
             {messages.length === 0 ? (
@@ -408,7 +290,6 @@ function SearchContent() {
             )}
           </div>
 
-          {/* Input Area */}
           <div className="border-t border-border bg-background p-4">
             <form onSubmit={handleSubmit} className="mx-auto flex max-w-3xl items-center gap-3">
               <div className="relative flex-1">
@@ -444,7 +325,6 @@ function SearchContent() {
           </div>
         </main>
 
-        {/* Sources Panel */}
         {messages.length > 0 && (
           <aside className="hidden w-80 shrink-0 border-l border-border bg-muted/20 p-4 xl:block">
             <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-muted-foreground">Sources</h2>

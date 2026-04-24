@@ -1,8 +1,15 @@
 import { createBrowserClient } from '@supabase/ssr'
 
+/**
+ * Creates a Supabase client for use in the browser.
+ */
 export function createClient() {
-  return createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-  )
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!url || !key) {
+    throw new Error('Missing Supabase public configuration (URL or Anon Key)');
+  }
+
+  return createBrowserClient(url, key);
 }

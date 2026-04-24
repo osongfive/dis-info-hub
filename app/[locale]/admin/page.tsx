@@ -20,7 +20,7 @@ import {
   Calendar,
 } from "lucide-react";
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { useEffect, Suspense } from "react";
@@ -98,6 +98,8 @@ export default function AdminPage() {
   const [isInitialLoading, setIsInitialLoading] = useState(true);
 
   const router = useRouter();
+  const params = useParams();
+  const locale = params?.locale || "en";
 
   const SUPER_ADMIN = 'osongfivestar@gmail.com';
 
@@ -118,21 +120,51 @@ export default function AdminPage() {
     }
 
     // Fetch queries for top questions aggregation
-    const { data: queries } = await supabase
+    const { data: rawQueries } = await supabase
       .from('search_queries')
       .select('query');
 
-    if (queries) {
-      setTotalQuestions(queries.length);
-      const counts: Record<string, number> = {};
-      queries.forEach(q => {
-        counts[q.query] = (counts[q.query] || 0) + 1;
+    if (rawQueries) {
+      setTotalQuestions(rawQueries.length);
+      
+      const rawCounts: Record<string, number> = {};
+      rawQueries.forEach(q => {
+        rawCounts[q.query] = (rawCounts[q.query] || 0) + 1;
       });
-      const sorted = Object.entries(counts)
-        .map(([question, count]) => ({ question, count }))
-        .sort((a, b) => b.count - a.count)
-        .slice(0, 5);
-      setTopQuestionsList(sorted);
+
+      // Attempt AI-powered semantic clustering
+      try {
+        const clusterRes = await fetch('/api/admin/cluster-queries', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ queries: rawQueries.map(q => q.query) })
+        });
+        
+        if (clusterRes.ok) {
+          const { clusters } = await clusterRes.json();
+          const topicCounts: Record<string, number> = {};
+          
+          rawQueries.forEach(q => {
+            const topic = clusters[q.query] || q.query;
+            topicCounts[topic] = (topicCounts[topic] || 0) + 1;
+          });
+
+          const sorted = Object.entries(topicCounts)
+            .map(([question, count]) => ({ question, count }))
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 5);
+          setTopQuestionsList(sorted);
+        } else {
+          throw new Error('Clustering API failed');
+        }
+      } catch (err) {
+        console.warn('AI Clustering failed, falling back to exact match:', err);
+        const sorted = Object.entries(rawCounts)
+          .map(([question, count]) => ({ question, count }))
+          .sort((a, b) => b.count - a.count)
+          .slice(0, 5);
+        setTopQuestionsList(sorted);
+      }
     }
 
     // Fetch requests ONLY if Super Admin
@@ -162,13 +194,13 @@ export default function AdminPage() {
   useEffect(() => {
     const supabase = createClient();
 
-    // Initial check
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!session) {
-        router.push("/auth/login");
+    // Initial check - use getUser() which validates with server, not just local storage
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) {
+        router.push(`/${locale}/auth/login?redirect=/${locale}/admin`);
       } else {
-        setUserEmail(session.user.email || null);
-        fetchData(session.user.email);
+        setUserEmail(user.email || null);
+        fetchData(user.email);
       }
       setIsInitialLoading(false);
     });
@@ -182,7 +214,7 @@ export default function AdminPage() {
       } else if (!isInitialLoading) {
         // ONLY redirect if we are sure the initial check is done and failed
         setUserEmail(null);
-        router.push("/auth/login");
+        router.push(`/${locale}/auth/login?redirect=/${locale}/admin`);
       }
     });
 
@@ -193,7 +225,7 @@ export default function AdminPage() {
     setIsLoggingOut(true);
     const supabase = createClient();
     await supabase.auth.signOut();
-    router.push("/");
+    router.push(`/${locale}`);
     router.refresh();
   };
 
@@ -303,75 +335,46 @@ export default function AdminPage() {
     setTestAnswer("Searching documents...");
 
     try {
-      // Call the /api/chat backend for context retrieval
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: sanitizedQuestion }),
       });
-      const data = await response.json();
-      const contextText = data.context || "";
 
-      if (!contextText) {
-        setTestAnswer("No relevant documents found for this question.");
-      } else if (typeof window !== "undefined" && (window as any).puter) {
-        const prompt = `You are an authoritative and helpful school information assistant. Your goal is to provide comprehensive, accurate answers by synthesizing the official documents provided.
+      if (!response.ok) {
+        let errData;
+        try { errData = await response.json(); } catch(e) {}
+        throw new Error((errData && errData.error) || "Failed to get response");
+      }
 
-RULES:
-- Base answers on the document context. Stay grounded in facts, but make logical inferences and combine multiple pieces of information to provide a complete answer.
-- If a question isn't answered verbatim, look for related policies and explain how they logically apply.
-- Be SPECIFIC and DETAILED with exact policies, numbers, and consequences.
-- Use bullet points (- item) and numbered lists (1. item) extensively for readability.
-- Use **bold** for key terms, policy names, and important details.
-- Speak definitively: "The policy states..." or "Based on the handbook guidelines..."
-- If specific consequences or requirements are present, LIST ALL OF THEM.
+      if (!response.body) throw new Error("No response body");
 
-Document Context:
-${contextText}
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let done = false;
+      let fullText = "";
 
-Question:
-${sanitizedQuestion}`;
-        const aiResponse = await (window as any).puter.ai.chat(prompt, { model: 'gpt-4o-mini' });
-        const rawText = aiResponse?.message?.content || "No response generated.";
-        let text = rawText;
-        const hasBullets =
-          /(^|\n)\s*[-*]\s+/m.test(text) ||
-          /(^|\n)\s*\d+\.\s+/m.test(text);
+      while (!done) {
+        const { value, done: doneReading } = await reader.read();
+        done = doneReading;
+        const chunkValue = decoder.decode(value, { stream: true });
+        const lines = chunkValue.split('\n').filter(line => line.trim() !== '');
 
-        if (!hasBullets) {
-          const lineSplit = text.split("\n");
-          const linesHaveStructure = lineSplit.length > 1;
-
-          const toBullets = (pieces: string[]) =>
-            pieces
-              .map((piece) => {
-                const trimmed = piece.trim();
-                if (!trimmed) return "";
-                if (/^#{1,6}\s+/.test(trimmed)) return trimmed;
-                return `- ${trimmed}`;
-              })
-              .join("\n");
-
-          if (linesHaveStructure) {
-            text = toBullets(lineSplit);
-          } else {
-            const sentences = text.split(/(?<=[\.!?])\s+(?=[A-Z0-9])/);
-            if (sentences.length > 1) {
-              text = toBullets(sentences);
+        for (const line of lines) {
+          try {
+            const parsed = JSON.parse(line);
+            if (parsed.answer) { // Cached hit
+              fullText = parsed.answer;
+              break;
             }
-          }
+            if (parsed.type === 'chunk') {
+              fullText += parsed.text;
+            }
+          } catch (e) {}
         }
 
-        let html = await marked.parse(text);
-        if (!/<ul[\s>]/i.test(html) && !/<ol[\s>]/i.test(html)) {
-          const single = rawText.trim();
-          if (single) {
-            html = `<ul><li>${single}</li></ul>`;
-          }
-        }
-        setTestAnswer(sanitizeHtmlResponse(html));
-      } else {
-        setTestAnswer("AI unavailable. Puter.js is not loaded.");
+        const currentHtml = fullText ? await marked.parse(fullText) : "Thinking...";
+        setTestAnswer(sanitizeHtmlResponse(currentHtml));
       }
     } catch (err: any) {
       setTestAnswer("Error: " + (err.message || "Failed to get response"));

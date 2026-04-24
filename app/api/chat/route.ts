@@ -1,10 +1,8 @@
 import { type NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createAdminClient } from '@/lib/supabase/server';
 import { HfInference } from '@huggingface/inference';
-import crypto from 'crypto';
 import { rateLimit } from '@/lib/rate-limit';
 import Groq from 'groq-sdk';
-
 
 export async function POST(req: NextRequest) {
   try {
@@ -31,18 +29,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Query is too long (max 500 characters)' }, { status: 400 });
     }
 
-
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-    const supabase = createClient(supabaseUrl, supabaseAnonKey);
-    
-    // Validate that the secret key is configured (no fallback — fail loudly)
-    const internalSecret = process.env.SUPABASE_SECRET_KEY;
-    if (!internalSecret) {
-      console.error('SUPABASE_SECRET_KEY is not configured');
-      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
-    }
-    const cacheToken = crypto.createHmac('sha256', internalSecret).update(query.trim()).digest('hex');
+    // Use centralized admin client for all DB operations in this route
+    const supabase = createAdminClient();
     
     const hfToken = process.env.HF_ACCESS_TOKEN;
     if (!hfToken) {

@@ -1,40 +1,11 @@
 import { NextResponse, NextRequest } from 'next/server';
 import { rateLimit } from '@/lib/rate-limit'
-
-import { createClient } from '@supabase/supabase-js';
+import { createAdminClient } from '@/lib/supabase/server';
 import { HfInference } from '@huggingface/inference';
-
-import { createClient as createServerClient } from '@/lib/supabase/server';
+import { isUrlSafe } from '@/lib/security';
+import { requireAdmin } from '@/lib/auth';
 
 export const runtime = 'nodejs';
-
-function isUrlSafe(urlStr: string): boolean {
-  try {
-    const url = new URL(urlStr);
-    if (url.protocol !== 'https:') return false;
-    
-    const hostname = url.hostname.toLowerCase();
-    
-    // Block localhost and private IP ranges
-    const privatePatterns = [
-      /^localhost$/,
-      /^127\./,
-      /^10\./,
-      /^172\.(1[6-9]|2[0-9]|3[0-1])\./,
-      /^192\.168\./,
-      /^169\.254\./, // Link-local / Cloud metadata
-      /^0\./,
-      /^::1$/,
-      /^fc00:/,
-      /^fe80:/
-    ];
-    
-    return !privatePatterns.some(pattern => pattern.test(hostname));
-  } catch {
-    return false;
-  }
-}
-
 
 export async function POST(req: NextRequest) {
   // Apply rate limiting: 3 requests per hour for document processing
@@ -49,24 +20,11 @@ export async function POST(req: NextRequest) {
     );
   }
 
-
   let documentId: string | undefined;
 
   try {
-    // 1. Verify Authentication
-    const userClient = await createServerClient();
-    const { data: { user } } = await userClient.auth.getUser();
-
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    // RBAC: Check for admin role in metadata
-    const userRole = (user.app_metadata?.role as string) || (user.user_metadata?.role as string);
-    if (userRole !== 'admin') {
-      return NextResponse.json({ error: 'Forbidden. Admin access required.' }, { status: 403 });
-    }
-
+    // 1. Verify Authentication & RBAC using centralized utility
+    await requireAdmin();
 
     const pdfParse = require('pdf-parse');
     const body = await req.json();
@@ -77,16 +35,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Missing documentId or fileUrl' }, { status: 400 });
     }
 
-    // 3. SSRF Protection: Validate the fileUrl
+    // 2. SSRF Protection: Validate the fileUrl using shared utility
     if (!isUrlSafe(fileUrl)) {
       return NextResponse.json({ error: 'Invalid or unsafe fileUrl provided' }, { status: 400 });
     }
 
-
-    // 2. Initialize Service Client for privileged operations
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const supabaseSecret = process.env.SUPABASE_SECRET_KEY!;
-    const supabase = createClient(supabaseUrl, supabaseSecret);
+    // 3. Initialize Admin Client for privileged operations
+    const supabase = createAdminClient();
 
     const hfToken = process.env.HF_ACCESS_TOKEN;
     if (!hfToken) {
@@ -212,7 +167,7 @@ export async function POST(req: NextRequest) {
     // Always try to mark the document as errored
     if (documentId) {
       try {
-        const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SECRET_KEY!);
+        const supabase = createAdminClient();
         await supabase.from('documents').update({ status: 'error' }).eq('id', documentId);
       } catch (_) { }
     }

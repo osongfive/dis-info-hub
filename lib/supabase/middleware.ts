@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { checkIsAdmin } from '@/lib/auth'
 
 export async function updateSession(request: NextRequest, response?: NextResponse) {
   let supabaseResponse = response || NextResponse.next({
@@ -35,29 +36,26 @@ export async function updateSession(request: NextRequest, response?: NextRespons
   } = await supabase.auth.getUser()
 
   // Protect the /admin route - redirect to login if not authenticated or not an admin
-  // Match /admin or localized paths like /en/admin, /ko/admin
   const isAdminPath = request.nextUrl.pathname === '/admin' || 
                       request.nextUrl.pathname.startsWith('/admin/') ||
-                      request.nextUrl.pathname.match(/\/(en|ko)\/admin(\/.*)?$/);
+                      /\/(en|ko)\/admin(\/.*)?$/.test(request.nextUrl.pathname);
 
   if (isAdminPath) {
-
     if (!user) {
       const url = request.nextUrl.clone()
-      url.pathname = '/auth/login'
+      const localeMatch = request.nextUrl.pathname.match(/^\/(en|ko)/)
+      const locale = localeMatch ? localeMatch[1] : 'en'
+      url.pathname = `/${locale}/auth/login`
       url.searchParams.set('redirect', request.nextUrl.pathname)
       return NextResponse.redirect(url)
     }
 
-    // Role Check: Ensure user has 'admin' privilege
-    const userRole = (user.app_metadata?.role as string) || (user.user_metadata?.role as string);
-    if (userRole !== 'admin') {
+    if (!checkIsAdmin(user)) {
       const url = request.nextUrl.clone()
-      url.pathname = '/' // Redirect unauthorized non-admins to home
+      url.pathname = '/'
       return NextResponse.redirect(url)
     }
   }
-
 
   return supabaseResponse
 }
