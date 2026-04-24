@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 import { Resend } from 'resend';
-import { createClient as createSupabaseServer } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/server';
+import { requireAdmin } from '@/lib/auth';
 
 export async function POST(req: Request) {
   try {
@@ -11,32 +11,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Missing requestId or action' }, { status: 400 });
     }
 
-    // 1. Verify Admin Session
-    const supabaseServer = await createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SECRET_KEY!
-    );
-    
-    // Auth Check: Ensure the current user is an admin
-    const authSupabase = await createSupabaseServer();
-    const { data: { user } } = await authSupabase.auth.getUser();
-    
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    // 1. Verify Authentication & RBAC using centralized utility
+    await requireAdmin();
 
-    const adminEmail = process.env.ADMIN_EMAIL;
-
-    const isOwner = user.email === adminEmail;
-    const isSystemAdmin = user.app_metadata?.role === 'admin';
-
-    if (!isOwner && !isSystemAdmin) {
-      return NextResponse.json({ error: 'Forbidden: Only the system owner can manage access requests' }, { status: 403 });
-    }
+    // Use centralized admin client for all privileged operations
+    const supabaseAdmin = createAdminClient();
 
 
     // 2. Fetch Request Details
-    const { data: request, error: fetchError } = await supabaseServer
+    const { data: request, error: fetchError } = await supabaseAdmin
       .from('admin_access_requests')
       .select('*')
       .eq('id', requestId)
@@ -48,7 +31,7 @@ export async function POST(req: Request) {
 
     // 3. Update Status
     const newStatus = action === 'approve' ? 'approved' : 'denied';
-    const { error: updateError } = await supabaseServer
+    const { error: updateError } = await supabaseAdmin
       .from('admin_access_requests')
       .update({ status: newStatus })
       .eq('id', requestId);
@@ -58,11 +41,11 @@ export async function POST(req: Request) {
     // 4. Send Email and Grant Role if Approved
     if (action === 'approve') {
       // Find user and grant admin role
-      const { data: { users }, error: listError } = await supabaseServer.auth.admin.listUsers();
+      const { data: { users }, error: listError } = await supabaseAdmin.auth.admin.listUsers();
       if (!listError && users) {
         const user = users.find(u => u.email === request.email);
         if (user) {
-          await supabaseServer.auth.admin.updateUserById(user.id, {
+          await supabaseAdmin.auth.admin.updateUserById(user.id, {
             app_metadata: { role: 'admin' }
           });
           console.log(`[APPROVAL] Granted admin role to ${request.email}`);

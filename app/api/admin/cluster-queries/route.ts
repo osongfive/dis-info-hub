@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
 import Groq from 'groq-sdk';
+import { requireAdmin } from '@/lib/auth';
 
 export async function POST(req: Request) {
   try {
+    await requireAdmin();
     const { queries } = await req.json();
     
     if (!queries || !Array.isArray(queries) || queries.length === 0) {
