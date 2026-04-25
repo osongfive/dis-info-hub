@@ -18,6 +18,7 @@ import {
   Clock,
   LogOut,
   Calendar,
+  RefreshCw,
 } from "lucide-react";
 import { useState } from "react";
 import { useRouter, useParams } from "next/navigation";
@@ -96,6 +97,7 @@ export default function AdminPage() {
   const [isSyncingCalendar, setIsSyncingCalendar] = useState(false);
   const [calendarEvents, setCalendarEvents] = useState<any[]>([]);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [isRefreshingAnalytics, setIsRefreshingAnalytics] = useState(false);
 
   const router = useRouter();
   const params = useParams();
@@ -104,8 +106,9 @@ export default function AdminPage() {
   const SUPER_ADMIN = 'osongfivestar@gmail.com';
 
   // Fetch data on load
-  const fetchData = async (email?: string) => {
+  const fetchData = async (email?: string, forceRefresh = false) => {
     setIsLoadingDocs(true);
+    if (forceRefresh) setIsRefreshingAnalytics(true);
     const supabase = createClient();
     const currentEmail = email || userEmail;
 
@@ -137,7 +140,10 @@ export default function AdminPage() {
         const clusterRes = await fetch('/api/admin/cluster-queries', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ queries: rawQueries.map(q => q.query) })
+          body: JSON.stringify({ 
+            queries: rawQueries.map(q => q.query),
+            force: forceRefresh
+          })
         });
         
         if (clusterRes.ok) {
@@ -164,6 +170,8 @@ export default function AdminPage() {
           .sort((a, b) => b.count - a.count)
           .slice(0, 5);
         setTopQuestionsList(sorted);
+      } finally {
+        setIsRefreshingAnalytics(false);
       }
     }
 
@@ -872,11 +880,22 @@ export default function AdminPage() {
 
               {/* Top Questions */}
               <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
-                <div className="mb-4 flex items-center gap-2">
-                  <TrendingUp className="h-5 w-5 text-primary" />
-                  <h3 className="font-semibold text-foreground">
-                    Top Questions This Week
-                  </h3>
+                <div className="mb-4 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <TrendingUp className="h-5 w-5 text-primary" />
+                    <h3 className="font-semibold text-foreground">
+                      Top Questions This Week
+                    </h3>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-muted-foreground hover:text-primary"
+                    onClick={() => fetchData(undefined, true)}
+                    disabled={isRefreshingAnalytics}
+                  >
+                    <RefreshCw className={cn("h-4 w-4", isRefreshingAnalytics && "animate-spin")} />
+                  </Button>
                 </div>
                 <ul className="space-y-3">
                   {topQuestionsList.length === 0 ? (
