@@ -39,10 +39,13 @@ export async function POST(req: NextRequest) {
     const hf = new HfInference(hfToken);
 
     // 1. Check for EXACT match in cache first (Zero Latency path)
+    // F-04: Ignore entries older than 7 days to avoid stale answers
+    const cacheTTL = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
     const { data: cachedHit } = await supabase
       .from('search_cache')
       .select('answer_text, sources')
       .eq('query_text', query.trim())
+      .gte('created_at', cacheTTL)
       .single();
 
     if (cachedHit) {
@@ -87,13 +90,20 @@ export async function POST(req: NextRequest) {
         ? category.trim()
         : null;
         
-    const { data: matchedChunks, error: matchError } = await supabase.rpc('match_document_chunks', {
+    const { data: rawChunks, error: matchError } = await supabase.rpc('match_document_chunks', {
       query_embedding: embedding,
-      match_count: 15, // INCREASED from 8 to 15 to ensure we get specific details (colors, patterns)
+      match_count: 15,
       category_filter: categoryFilter,
     });
 
     if (matchError) throw matchError;
+
+    // P-01: Filter out low-relevance chunks. null-guard preserves compatibility
+    // with RPC versions that don't expose a similarity score column.
+    const SIMILARITY_THRESHOLD = 0.3;
+    const matchedChunks = (rawChunks || []).filter(
+      (c: any) => c.similarity == null || c.similarity >= SIMILARITY_THRESHOLD
+    );
 
     // 4. Calendar Integration (NEW)
     // Check if the query is related to dates or events
@@ -142,20 +152,10 @@ export async function POST(req: NextRequest) {
     const uniqueSources = Array.from(new Map([...docSources, ...calendarSources].map((s: any) => [s.title, s])).values());
 
     // 6. Security: Define System Prompt Server-Side
-    const systemPrompt = `You are the DIS Information Hub Assistant—an authoritative, helpful, and highly detailed school guide. Your primary mission is to synthesize the provided official school documents into a clear, comprehensive answer.
-
-STRICT LANGUAGE RULE:
-- **IDENTIFY THE LANGUAGE** of the "Student Question" first.
-- **IF THE QUESTION IS IN ENGLISH:** You MUST respond in English.
-- **IF THE QUESTION IS IN KOREAN:** You MUST respond in Korean.
-- NEVER mix languages.
-- **CRITICAL:** DO NOT include any meta-discussion or internal reasoning in your final response.
-
-CONTENT & STYLE RULES:
-- **BE AUTHORITATIVE & DETAILED:** Extract EVERY SPECIFIC DETAIL (exact colors, room numbers, materials, specific times).
-- **STRICT GROUNDING:** Base your answers ONLY on the provided documents.
-- **FORMATTING:** Use bullet points, numbered lists, and **bold** for key terms.
-- **STRUCTURE:** Use "## Headings" to organize long answers.`;
+    // P-04: Compressed prompt — saves ~120 tokens per request
+    const systemPrompt = `You are the DIS Info Hub Assistant. Answer using ONLY the provided documents.
+Reply in the same language as the question (English or Korean, never mix). Do not include meta-discussion.
+Be detailed: extract exact colors, room numbers, times. Use markdown (bullet points, **bold**, ## headings).`;
 
     // 7. Triple-Level Guard (Smart Routing with Streaming)
     const modelChain = [
@@ -171,22 +171,35 @@ CONTENT & STYLE RULES:
       { role: 'user' as const, content: `Document Context:\n${contextText}\n\nStudent Question:\n${query}` }
     ];
 
+    // F-01: Per-model timeout via AbortController. Fallback on 429, 503, and timeouts.
+    let selectedModel = '';
     for (const model of modelChain) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s per model
       try {
         aiStream = await groq.chat.completions.create({
           model: model,
           messages: messages,
-          temperature: 0.1, // Keep answers highly factual
+          temperature: 0.1,
           stream: true,
+          // @ts-ignore — Groq SDK forwards the signal to the underlying fetch
+          signal: controller.signal,
         });
-        break; // Success! Exit the fallback loop.
+        clearTimeout(timeoutId);
+        selectedModel = model;
+        break; // Success — exit the fallback loop.
       } catch (error: any) {
-        if (error?.status === 429) {
-          console.warn(`[Groq] Rate limited on ${model}, falling back to next model...`);
-          continue; // Try the next model
+        clearTimeout(timeoutId);
+        const isRetryable =
+          error?.status === 429 ||
+          error?.status === 503 ||
+          error?.name === 'AbortError';
+        if (isRetryable) {
+          console.warn(`[Groq] ${error?.name ?? error?.status} on ${model}, falling back to next model...`);
+          continue;
         }
-        console.error(`[Groq] Error on ${model}:`, error);
-        throw error; // If it's a real error (like 500 or auth), fail the request.
+        console.error(`[Groq] Non-retryable error on ${model}:`, error);
+        throw error;
       }
     }
 
@@ -199,8 +212,8 @@ CONTENT & STYLE RULES:
       async start(controller) {
         const encoder = new TextEncoder();
         
-        // Output sources first so the UI can display them immediately
-        controller.enqueue(encoder.encode(JSON.stringify({ type: 'init', sources: uniqueSources }) + '\n'));
+        // Output sources + the model that served this response first
+        controller.enqueue(encoder.encode(JSON.stringify({ type: 'init', sources: uniqueSources, model: selectedModel }) + '\n'));
         
         let fullAnswer = "";
         
@@ -213,7 +226,11 @@ CONTENT & STYLE RULES:
             }
           }
         } catch (streamErr) {
+          // U-01: Signal the client that the stream was interrupted, rather than closing silently.
           console.error("Error while streaming chunks:", streamErr);
+          controller.enqueue(encoder.encode(
+            JSON.stringify({ type: 'error', message: 'Response was interrupted. Please try again.' }) + '\n'
+          ));
         }
 
         // Cache Answer asynchronously after stream finishes

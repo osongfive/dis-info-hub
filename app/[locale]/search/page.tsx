@@ -91,14 +91,19 @@ function SearchContent() {
       let fullText = "";
       let sources: any[] = [];
       let isCached = false;
+      // U-02: Persist incomplete lines across reader.read() boundaries.
+      let lineBuffer = "";
 
       while (!done) {
         const { value, done: doneReading } = await reader.read();
         done = doneReading;
-        const chunkValue = decoder.decode(value, { stream: true });
-        const lines = chunkValue.split('\n').filter(line => line.trim() !== '');
+        // Append the new chunk to the buffer, then split on newlines.
+        lineBuffer += decoder.decode(value, { stream: true });
+        const lines = lineBuffer.split('\n');
+        // The last element may be an incomplete line — keep it in the buffer.
+        lineBuffer = lines.pop() ?? "";
         
-        for (const line of lines) {
+        for (const line of lines.filter(l => l.trim() !== '')) {
           try {
             const parsed = JSON.parse(line);
             
@@ -116,8 +121,14 @@ function SearchContent() {
               updateSessionById(targetSessionId, { sources });
             } else if (parsed.type === 'chunk') {
               fullText += parsed.text;
+            } else if (parsed.type === 'error') {
+              // U-01 complement: surface the server-side stream interruption.
+              fullText += `\n\n*${parsed.message}*`;
             }
-          } catch (e) {}
+          } catch (e) {
+            // Only truly malformed JSON reaches here (not split-line artifacts).
+            console.warn('[NDJSON] Skipping unparseable line:', line);
+          }
         }
         
         const currentHtml = fullText ? await marked.parse(fullText) : "Thinking...";

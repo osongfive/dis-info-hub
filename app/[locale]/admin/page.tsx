@@ -783,6 +783,8 @@ export default function AdminPage() {
                                 onClick={async () => {
                                   if (confirm('Are you sure you want to delete this document?')) {
                                     const supabase = createClient();
+                                    // F-05: Cascade — remove orphaned vectors before deleting the document.
+                                    await supabase.from('document_chunks').delete().eq('document_id', doc.id);
                                     await supabase.from('documents').delete().eq('id', doc.id);
                                     fetchData();
                                   }

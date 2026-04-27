@@ -1,7 +1,10 @@
+"use client";
+
 import { cn } from "@/lib/utils";
-import { User, Bot } from "lucide-react";
+import { User, Bot, ThumbsUp, ThumbsDown } from "lucide-react";
 import DOMPurify from "isomorphic-dompurify";
 import { Badge } from "@/components/ui/badge";
+import { useState } from "react";
 
 interface ChatMessageProps {
   role: "user" | "assistant";
@@ -22,6 +25,22 @@ function sanitizeHtml(html: string): string {
 
 export function ChatMessage({ role, content, summary }: ChatMessageProps) {
   const isUser = role === "user";
+
+  // F-03: Per-message feedback state
+  const [feedbackGiven, setFeedbackGiven] = useState<'positive' | 'negative' | null>(null);
+
+  const handleFeedback = async (rating: 'positive' | 'negative') => {
+    setFeedbackGiven(rating);
+    try {
+      await fetch('/api/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rating, preview: content.slice(0, 300) }),
+      });
+    } catch (e) {
+      console.error('[feedback] Failed to submit:', e);
+    }
+  };
   
   // For user messages, escape HTML entirely; for assistant, sanitize allowed HTML
   const safeContent = isUser 
@@ -73,9 +92,40 @@ export function ChatMessage({ role, content, summary }: ChatMessageProps) {
           dangerouslySetInnerHTML={{ __html: safeContent }}
         />
         {!isUser && (
-          <p className="mt-4 text-[10px] text-muted-foreground/70 italic border-t border-border/40 pt-2">
-            Always verify this answer by reading the source document.
-          </p>
+          <div className="mt-3 border-t border-border/40 pt-3">
+            <p className="text-[10px] text-muted-foreground/70 italic">
+              Always verify this answer by reading the source document.
+            </p>
+            {/* F-03: Feedback buttons */}
+            <div className="mt-2 flex items-center gap-2">
+              <span className="text-[10px] text-muted-foreground/60">Helpful?</span>
+              <button
+                onClick={() => handleFeedback('positive')}
+                disabled={feedbackGiven !== null}
+                aria-label="Mark as helpful"
+                className={cn(
+                  "rounded p-1 transition-colors hover:text-green-600 disabled:cursor-default",
+                  feedbackGiven === 'positive' ? "text-green-600" : "text-muted-foreground/50"
+                )}
+              >
+                <ThumbsUp className="h-3.5 w-3.5" />
+              </button>
+              <button
+                onClick={() => handleFeedback('negative')}
+                disabled={feedbackGiven !== null}
+                aria-label="Mark as unhelpful"
+                className={cn(
+                  "rounded p-1 transition-colors hover:text-red-500 disabled:cursor-default",
+                  feedbackGiven === 'negative' ? "text-red-500" : "text-muted-foreground/50"
+                )}
+              >
+                <ThumbsDown className="h-3.5 w-3.5" />
+              </button>
+              {feedbackGiven && (
+                <span className="text-[10px] text-muted-foreground/60">Thanks!</span>
+              )}
+            </div>
+          </div>
         )}
       </div>
     </div>
