@@ -177,14 +177,18 @@ Be detailed: extract exact colors, room numbers, times. Use markdown (bullet poi
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s per model
       try {
-        aiStream = await groq.chat.completions.create({
-          model: model,
-          messages: messages,
-          temperature: 0.1,
-          stream: true,
-          // @ts-ignore — Groq SDK forwards the signal to the underlying fetch
-          signal: controller.signal,
-        });
+        aiStream = await groq.chat.completions.create(
+          {
+            model: model,
+            messages: messages,
+            temperature: 0.1,
+            stream: true,
+          },
+          {
+            // @ts-ignore — Groq SDK forwards the signal to the underlying fetch
+            signal: controller.signal,
+          }
+        );
         clearTimeout(timeoutId);
         selectedModel = model;
         break; // Success — exit the fallback loop.
