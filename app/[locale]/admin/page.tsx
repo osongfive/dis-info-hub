@@ -20,7 +20,17 @@ import {
   Calendar,
   RefreshCw,
 } from "lucide-react";
-import { useState } from "react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useState, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
@@ -84,6 +94,7 @@ export default function AdminPage() {
   const [description, setDescription] = useState("");
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Real Data State
   const [documents, setDocuments] = useState<any[]>([]);
@@ -98,6 +109,7 @@ export default function AdminPage() {
   const [calendarEvents, setCalendarEvents] = useState<any[]>([]);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [isRefreshingAnalytics, setIsRefreshingAnalytics] = useState(false);
+  const [docToDelete, setDocToDelete] = useState<any | null>(null);
 
   const router = useRouter();
   const params = useParams();
@@ -523,7 +535,7 @@ export default function AdminPage() {
                     <Button variant="outline" asChild>
                       <span>Browse Files</span>
                     </Button>
-                    <input type="file" className="hidden" onChange={handleFileSelect} accept={ALLOWED_FILE_TYPES.join(',')} />
+                    <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileSelect} accept={ALLOWED_FILE_TYPES.join(',')} />
                   </label>
                   <p className="mt-2 text-xs text-muted-foreground">
                     Allowed: PDF, DOC, DOCX, TXT (max 10MB)
@@ -570,6 +582,7 @@ export default function AdminPage() {
                 <Button
                   className="mt-4 w-full gap-2 sm:w-auto"
                   disabled={isUploading}
+                  onClick={() => fileInputRef.current?.click()}
                 >
                   <Upload className="h-4 w-4" />
                   {isUploading ? "Uploading..." : "Upload Document"}
@@ -780,15 +793,7 @@ export default function AdminPage() {
                                 <Eye className="h-4 w-4" />
                               </a>
                               <button
-                                onClick={async () => {
-                                  if (confirm('Are you sure you want to delete this document?')) {
-                                    const supabase = createClient();
-                                    // F-05: Cascade — remove orphaned vectors before deleting the document.
-                                    await supabase.from('document_chunks').delete().eq('document_id', doc.id);
-                                    await supabase.from('documents').delete().eq('id', doc.id);
-                                    fetchData();
-                                  }
-                                }}
+                                onClick={() => setDocToDelete(doc)}
                                 className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
                               >
                                 <Trash2 className="h-4 w-4" />
@@ -953,6 +958,41 @@ export default function AdminPage() {
           </div>
         </div>
       </main>
+
+      {/* U-06: Accessible delete confirmation dialog */}
+      <AlertDialog open={!!docToDelete} onOpenChange={(open) => { if (!open) setDocToDelete(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete document?</AlertDialogTitle>
+            <AlertDialogDescription>
+              &ldquo;{docToDelete?.title}&rdquo; will be permanently removed. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={async () => {
+                // F-06: Delegate to server-side API for auth-enforced cascade delete.
+                const res = await fetch('/api/admin/delete-document', {
+                  method: 'DELETE',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ documentId: docToDelete?.id }),
+                });
+                setDocToDelete(null);
+                if (res.ok) {
+                  fetchData();
+                } else {
+                  const { error } = await res.json();
+                  toast.error(error || 'Delete failed');
+                }
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

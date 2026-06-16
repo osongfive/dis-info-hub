@@ -204,6 +204,7 @@ function SearchContent() {
         {/* Mobile sidebar toggle */}
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
+          aria-label={sidebarOpen ? "Close sidebar" : "Open sidebar"}
           className="fixed bottom-4 left-4 z-50 flex h-12 w-12 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg lg:hidden"
         >
           {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
@@ -296,6 +297,24 @@ function SearchContent() {
                     summary={"summary" in message ? message.summary : undefined}
                   />
                 ))}
+                {/* U-04: Inline sources for mobile/tablet (hidden on xl where the aside is shown) */}
+                {sources.length > 0 && (
+                  <div className="xl:hidden rounded-xl border border-border bg-muted/20 p-4">
+                    <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">Sources</h2>
+                    <div className="space-y-3">
+                      {sources.map((source, index) => (
+                        <SourceCard
+                          key={index}
+                          title={source.title}
+                          page={source.page || 1}
+                          preview={source.preview}
+                          category={source.category}
+                          fileUrl={source.fileUrl}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div ref={messagesEndRef} />
               </div>
             )}
@@ -305,6 +324,8 @@ function SearchContent() {
             <form onSubmit={handleSubmit} className="mx-auto flex max-w-3xl items-center gap-3">
               <div className="relative flex-1">
                 <input
+                  id="chat-input"
+                  aria-label="Ask a question about school policies"
                   type="text"
                   value={input}
                   onChange={handleInputChange}

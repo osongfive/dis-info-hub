@@ -33,3 +33,10 @@ yarn-error.log*
 next-env.d.ts
 .aider*
 pitch_tech_context.txt
+
+# gemini
+GEMINI.md
+
+#misc
+implementation_plan.md
+audit_report.md
