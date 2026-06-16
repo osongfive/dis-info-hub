@@ -10,7 +10,7 @@
   <br />
   [![](https://img.shields.io/badge/Architecture-Triple--Guard%20RAG-f55036?style=for-the-badge)](https://groq.com)
   <br />
-  [![](https://img.shields.io/badge/Stack-Next.js%2015%20%2F%20Supabase-black?style=for-the-badge)](https://nextjs.org)
+  [![](https://img.shields.io/badge/Stack-Next.js%2016%20%2F%20Supabase-black?style=for-the-badge)](https://nextjs.org)
   <br />
   [![](https://img.shields.io/badge/Privacy-PIPA%20Compliant-3178C6?style=for-the-badge)](./app/[locale]/privacy/page.tsx)
   <br />
