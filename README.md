@@ -48,11 +48,11 @@ To prevent system failure during high traffic or API downtime, the hub utilizes 
 ```mermaid
 graph TD
     A[User Query] --> B{Smart Router}
-    B -->|L1: High Precision| C["Llama 3.3 70B (Primary)"]
+    B -->|L1: High Precision| C["GPT-OSS 120B (Primary)"]
     C -->|Success| D[Stream to UI]
-    C -->|Rate Limit / 429| E["Mixtral 8x7b (Logic Fallback)"]
+    C -->|Rate Limit / 429| E["Qwen 3.6 27B (Logic Fallback)"]
     E -->|Success| D
-    E -->|Rate Limit / 429| F["Llama 3.1 8B (Safety Net)"]
+    E -->|Rate Limit / 429| F["GPT-OSS 20B (Safety Net)"]
     F --> D
 ```
 

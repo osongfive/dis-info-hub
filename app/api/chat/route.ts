@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
     if (isKorean && !searchQuery) {
       try {
         const transRes = await groq.chat.completions.create({
-          model: 'llama-3.1-8b-instant', // Fast model for simple translation
+          model: 'openai/gpt-oss-20b', // Fast model for simple translation
           messages: [{ role: 'user', content: `Translate this school-related question into a concise English search query for a document database. Just provide the English translation, nothing else.\n\nQuestion: ${query}` }]
         });
         if (transRes.choices?.[0]?.message?.content) {
@@ -159,9 +159,9 @@ Be detailed: extract exact colors, room numbers, times. Use markdown (bullet poi
 
     // 7. Triple-Level Guard (Smart Routing with Streaming)
     const modelChain = [
-      'llama-3.3-70b-versatile',
-      'mixtral-8x7b-32768',
-      'llama-3.1-8b-instant'
+      'openai/gpt-oss-120b',
+      'qwen/qwen3.6-27b',
+      'openai/gpt-oss-20b'
     ];
 
     let aiStream: any = null;

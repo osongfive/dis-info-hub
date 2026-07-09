@@ -51,7 +51,7 @@ List of Queries:
 ${uniqueQueries.join('\n')}`;
 
     const completion = await groq.chat.completions.create({
-      model: 'llama-3.1-8b-instant',
+      model: 'openai/gpt-oss-20b',
       messages: [
         { role: 'system', content: 'You are a helpful assistant that clusters text into semantic categories and returns ONLY JSON.' },
         { role: 'user', content: prompt }
