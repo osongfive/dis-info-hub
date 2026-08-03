@@ -18,16 +18,16 @@ Admin-only. Steps:
 6. Batched HF embeddings → insert into `document_chunks`.
 7. Update `documents.status` to `indexed` (or `error` on failure).
 
-## Chunking — two strategies (important)
-There are **two chunking implementations**, only one of which is active:
+## Chunking — structure-aware (Stage 3)
+The active ingestion path (`api/process-doc` POST) now uses the Stage 2 structure-aware parser:
+1. `extractDocumentStructure(text)` → bounded sections (each ≤ 400 tokens) with `heading_path` breadcrumbs.
+2. Insert parent rows into `document_sections` (`heading_path`, `content`, `summary = null`). **AI summaries are deferred** — the `summary` column is nullable and not populated during ingestion.
+3. Split each section into child chunks (~100 tokens, ~20-token overlap) via `splitSectionIntoChunks()`.
+4. Batched HF embeddings (batch size 10) → insert into `document_chunks` with both `document_id` and `section_id`.
 
-### Active chunker (used in the POST handler)
-Sentence-aware splitting: paragraphs → sentences, target ~800 chars per chunk, ~120-char overlap carried from the prior chunk, with a hard-split fallback for oversized sentences. Batched embedding (batch size 10).
+**Section embeddings are intentionally omitted at Stage 3.** Retrieval remains the unchanged `match_document_chunks` RPC operating on child-chunk vectors. The planned Stage 4 parent-child retrieval scores sections by the *max child chunk score*, not a section embedding, so generating one now would be unused cost. The column can be added via `ALTER TABLE` if a later stage needs it.
 
-### Implemented but NOT wired in (`extractDocumentStructure`)
-A more advanced structure-aware parser exists in the same file (and is mirrored in `scripts/validate-parser.mjs`) but the POST handler does **not** call it. It is the foundation of the planned parent-child retrieval migration (see "Planned improvements" below).
-
-> ⚠️ Flag: `implementation_plan.md` describes this parser as the future ingestion path, but it is dead code today. See `technical-debt.md`.
+> ℹ️ The legacy ~800-char sentence chunker that previously lived in the POST handler has been replaced. `scripts/validate-parser.mjs` still mirrors the parser logic for offline validation (`node --env-file=.env.local scripts/validate-parser.mjs`).
 
 #### Parser contract (Stage 2 final)
 
@@ -80,8 +80,7 @@ See `architecture.md` → "Model routing — Triple-Guard". The same Groq client
 
 ## Current limitations
 - Single-stage vector retrieval only; no lexical (BM25) component.
-- No reranker or parent-section deduplication.
-- Chunking ignores document structure (active chunker is purely sentence-based).
+- No reranker or parent-section deduplication (parent-child retrieval is Stage 4; sections + `section_id` link are in place but not yet used at query time).
 - No cache invalidation on document re-upload/delete.
 
 ## Planned improvements (`implementation_plan.md`)

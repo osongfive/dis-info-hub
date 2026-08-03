@@ -341,6 +341,58 @@ export function extractDocumentStructure(text: string): DocumentSection[] {
   return bounded.filter(s => s.content.trim().length > 0);
 }
 
+// ---------------------------------------------------------------------------
+// Child-chunk splitting — turns a bounded section into retrieval-sized chunks
+// ---------------------------------------------------------------------------
+
+const CHUNK_TARGET_TOKENS = 100;
+const CHUNK_OVERLAP_TOKENS = 20;
+
+/**
+ * Splits a section's content into child chunks targeting ~100 tokens each,
+ * carrying a ~20-token overlap from the trailing words of the previous chunk.
+ *
+ * Word-based (token-aware) splitting is used because sections are already
+ * paragraph-bounded by the Stage 2 parser; the child chunks are the vector
+ * retrieval unit consumed by the existing match_document_chunks RPC. Each
+ * child chunk inherits its parent section's id via section_id.
+ */
+function splitSectionIntoChunks(content: string): string[] {
+  const words = content.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [];
+
+  const chunks: string[] = [];
+  let start = 0;
+
+  while (start < words.length) {
+    // Accumulate words from `start` until the token target is reached.
+    let end = start;
+    let tokens = 0;
+    while (end < words.length && tokens < CHUNK_TARGET_TOKENS) {
+      tokens += estimateTokens(words[end]);
+      end++;
+    }
+    chunks.push(words.slice(start, end).join(' '));
+
+    if (end >= words.length) break;
+
+    // Next chunk begins where the trailing ~overlap tokens of the current
+    // chunk start, so consecutive chunks share a small boundary.
+    let carryTokens = 0;
+    let nextStart = end - 1;
+    while (nextStart > start && carryTokens < CHUNK_OVERLAP_TOKENS) {
+      carryTokens += estimateTokens(words[nextStart]);
+      nextStart--;
+    }
+    nextStart += 1; // loop decremented one past the overlap window
+
+    // Guarantee forward progress (overlap must be < target).
+    start = nextStart > start ? nextStart : start + 1;
+  }
+
+  return chunks;
+}
+
 export const runtime = 'nodejs';
 
 export async function POST(req: NextRequest) {
@@ -408,81 +460,59 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No text extracted from file' }, { status: 400 });
     }
 
-    // 2. Smarter chunking: sentence-aware with slight overlap
-    const maxLen = 800;
-    const overlapChars = 120;
-    const chunks: string[] = [];
+    // 2. Structure-aware ingestion (Stage 3):
+    //    Stage 2 parser -> bounded sections -> child chunks -> embeddings.
+    //    The parser functions above are unchanged (Stage 2 is frozen).
+    const sections = extractDocumentStructure(text);
+    if (sections.length === 0) {
+      await supabase.from('documents').update({ status: 'error' }).eq('id', documentId);
+      return NextResponse.json({ error: 'Parser produced no sections' }, { status: 400 });
+    }
 
-    // Normalize whitespace a bit
-    const normalized = text.replace(/\r\n/g, "\n").replace(/\t/g, " ");
+    // 2a. Insert parent sections. summary is nullable by design; AI summaries
+    //     are deferred to a later stage (no LLM calls during ingestion).
+    const sectionRows = sections.map(s => ({
+      document_id: documentId,
+      heading_path: s.heading_path,
+      content: s.content,
+      summary: null,
+    }));
+    const { data: insertedSections, error: sectionInsertError } = await supabase
+      .from('document_sections')
+      .insert(sectionRows)
+      .select('id');
+    if (sectionInsertError) throw sectionInsertError;
 
-    // Split into paragraphs first (blank lines), then into sentences
-    const paragraphs = normalized
-      .split(/\n\s*\n/)
-      .map((p) => p.trim())
-      .filter((p) => p.length > 0);
-
-    const sentenceSplitter = /(?<=[\.!?])\s+(?=[A-Z0-9])/;
-
-    for (const para of paragraphs) {
-      const sentences = para.split(sentenceSplitter).map((s) => s.trim()).filter((s) => s.length > 0);
-      let current = "";
-
-      for (const sentence of sentences) {
-        if ((current + " " + sentence).trim().length <= maxLen) {
-          current = (current ? current + " " : "") + sentence;
-        } else {
-          if (current) {
-            chunks.push(current);
-          }
-          // Start new chunk, optionally with some overlap from previous chunk
-          const overlap =
-            current.length > overlapChars
-              ? current.slice(current.length - overlapChars)
-              : current;
-          current = (overlap ? overlap + " " : "") + sentence;
-          if (current.length > maxLen) {
-            // If still too long (very long sentence), hard-split
-            for (let i = 0; i < current.length; i += maxLen) {
-              chunks.push(current.slice(i, i + maxLen));
-            }
-            current = "";
-          }
-        }
-      }
-
-      if (current) {
-        chunks.push(current);
+    // 2b. Split each section into child chunks (~100 tokens, ~20 overlap),
+    //     carrying the parent section_id for future parent-child retrieval.
+    const childChunks: { section_id: string; content: string }[] = [];
+    for (let i = 0; i < insertedSections.length; i++) {
+      const sectionId = insertedSections[i].id;
+      const parts = splitSectionIntoChunks(sections[i].content);
+      const safeParts = parts.length > 0 ? parts : [sections[i].content];
+      for (const part of safeParts) {
+        childChunks.push({ section_id: sectionId, content: part });
       }
     }
 
-    // Fallback: if somehow no chunks, use the whole text cut into maxLen pieces
-    if (chunks.length === 0) {
-      for (let i = 0; i < normalized.length; i += maxLen) {
-        const slice = normalized.slice(i, i + maxLen).trim();
-        if (slice.length > 0) {
-          chunks.push(slice);
-        }
-      }
-    }
+    console.log(`[process-doc] Parsed ${sections.length} sections -> ${childChunks.length} child chunks for document ${documentId}`);
 
-    console.log(`[process-doc] Processing ${chunks.length} chunks for document ${documentId}`);
-
-    // 3. Generate Embeddings (larger batches for performance)
+    // 2c. Embed child chunks in batches and insert with section_id link.
     const batchSize = 10;
-    for (let i = 0; i < chunks.length; i += batchSize) {
-      const batch = chunks.slice(i, i + batchSize);
+    for (let i = 0; i < childChunks.length; i += batchSize) {
+      const batch = childChunks.slice(i, i + batchSize);
 
       const embeddings = await Promise.all(
-        batch.map(chunkText => hf.featureExtraction({
+        batch.map(c => hf.featureExtraction({
           model: 'sentence-transformers/all-MiniLM-L6-v2',
-          inputs: chunkText,
+          inputs: c.content,
         }))
       );
 
-      const chunkRecords = batch.map((chunkText, idx) => ({
+      const chunkRecords = batch.map((c, idx) => ({
         document_id: documentId,
-        content: chunkText,
+        section_id: c.section_id,
+        content: c.content,
         // @ts-ignore
         embedding: embeddings[idx],
       }));
@@ -490,14 +520,14 @@ export async function POST(req: NextRequest) {
       const { error: insertError } = await supabase.from('document_chunks').insert(chunkRecords);
       if (insertError) throw insertError;
 
-      console.log(`[process-doc] Inserted batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(chunks.length / batchSize)}`);
+      console.log(`[process-doc] Inserted chunk batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(childChunks.length / batchSize)}`);
     }
 
-    // 4. Update parent document status
+    // 3. Update parent document status
     await supabase.from('documents').update({ status: 'indexed' }).eq('id', documentId);
     console.log(`[process-doc] Document ${documentId} indexed successfully`);
 
-    return NextResponse.json({ success: true, processedChunks: chunks.length });
+    return NextResponse.json({ success: true, processedChunks: childChunks.length, sections: sections.length });
   } catch (error: any) {
     console.error('[process-doc] Error:', error);
     // Always try to mark the document as errored
