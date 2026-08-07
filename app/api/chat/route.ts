@@ -84,15 +84,17 @@ export async function POST(req: NextRequest) {
       supabase.from('search_queries').insert({ query }) // Logging is non-blocking
     ]);
 
-    // 3. Search document_chunks (using NEW optimized RPC with metadata)
+    // 3. Retrieve Top K child chunks via the existing retrieval RPC.
+    //    K=50 gives enough coverage to deduplicate into 5 unique parent
+    //    sections. The RPC function itself is unchanged.
     const categoryFilter =
       typeof category === 'string' && category.trim().length > 0 && category !== 'all'
         ? category.trim()
         : null;
-        
+
     const { data: rawChunks, error: matchError } = await supabase.rpc('match_document_chunks', {
       query_embedding: embedding,
-      match_count: 15,
+      match_count: 50,
       category_filter: categoryFilter,
     });
 
@@ -137,10 +139,70 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 5. Gather context and sources efficiently
-    const contextText = matchedChunks.map((c: any) => c.content).join('\n\n') + calendarContext;
-    
-    // Map chunks to docs using metadata already in the RPC response
+    // 5. Parent-child retrieval (Stage 4)
+    //    Group child chunks by section_id; score each section by the MAX
+    //    similarity of any child chunk belonging to it; rank and select the
+    //    top 5 unique parent sections. Chunks with section_id = null
+    //    (pre-Stage-3 documents) fall back to direct chunk context so old
+    //    documents still produce valid answers.
+    const chunkIds = matchedChunks.map((c: any) => c.id).filter(Boolean);
+
+    // The RPC does not return section_id; fetch it for the retrieved chunks.
+    const chunkSectionMap: Record<string, string | null> = {};
+    if (chunkIds.length > 0) {
+      const { data: chunkMeta } = await supabase
+        .from('document_chunks')
+        .select('id, section_id')
+        .in('id', chunkIds);
+      for (const cm of chunkMeta || []) {
+        chunkSectionMap[cm.id] = cm.section_id;
+      }
+    }
+
+    // Split matched chunks into sectioned groups and legacy (null) chunks.
+    const sectionGroups = new Map<string, any[]>(); // section_id -> chunks
+    const legacyChunks: any[] = [];
+    for (const c of matchedChunks) {
+      const sid = chunkSectionMap[c.id] ?? null;
+      if (sid) {
+        if (!sectionGroups.has(sid)) sectionGroups.set(sid, []);
+        sectionGroups.get(sid)!.push(c);
+      } else {
+        legacyChunks.push(c);
+      }
+    }
+
+    // Score each section by its highest-scoring child chunk, then rank.
+    const sectionScores = Array.from(sectionGroups.entries()).map(([sid, chunks]) => ({
+      section_id: sid,
+      score: Math.max(...chunks.map((c: any) => c.similarity ?? 0)),
+    }));
+    sectionScores.sort((a, b) => b.score - a.score);
+    const topSections = sectionScores.slice(0, 5); // Top 5 unique parent sections
+
+    // Fetch the parent section content for the selected sections.
+    const sectionContentMap: Record<string, { heading_path: string; content: string }> = {};
+    if (topSections.length > 0) {
+      const { data: secRows } = await supabase
+        .from('document_sections')
+        .select('id, heading_path, content')
+        .in('id', topSections.map(s => s.section_id));
+      for (const s of secRows || []) {
+        sectionContentMap[s.id] = { heading_path: s.heading_path, content: s.content };
+      }
+    }
+
+    // Build LLM context: each selected parent section appears exactly once
+    // (deduplicated by section_id), followed by legacy chunks as fallback.
+    const sectionContextParts = topSections
+      .map(s => sectionContentMap[s.section_id])
+      .filter(Boolean)
+      .map(s => `[Section: ${s.heading_path}]\n${s.content}`);
+    const legacyContextParts = legacyChunks.map((c: any) => c.content);
+    const contextText = [...sectionContextParts, ...legacyContextParts].join('\n\n') + calendarContext;
+
+    // Sources: document-level, deduplicated by title (unchanged behavior),
+    // drawn from all matched chunks (sectioned + legacy).
     const docSources = matchedChunks.map((chunk: any) => ({
       title: chunk.document_title || 'Unknown Document',
       category: chunk.document_category || 'General',
