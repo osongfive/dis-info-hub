@@ -414,7 +414,11 @@ export async function POST(req: NextRequest) {
     // 1. Verify Authentication & RBAC using centralized utility
     await requireAdmin();
 
-    const pdfParse = require('pdf-parse');
+    // Require the lib entry directly. The package's main `index.js` contains a
+    // debug block that reads './test/data/05-versions-space.pdf' when
+    // `module.parent` is null (true under the Next.js bundler), which throws
+    // ENOENT in production and hangs uploads. The lib entry is the parser only.
+    const pdfParse = require('pdf-parse/lib/pdf-parse.js');
     const body = await req.json();
     documentId = body.documentId;
     const fileUrl = body.fileUrl;
@@ -438,34 +442,42 @@ export async function POST(req: NextRequest) {
     }
     const hf = new HfInference(hfToken);
 
+    const _t0 = Date.now();
     // 1. Download file
+    console.log(`[process-doc] stage=fetch-start doc=${documentId} url=${fileUrl} t=${Date.now() - _t0}ms`);
     const response = await fetch(fileUrl);
     const contentType = response.headers.get('content-type') || '';
     const arrayBuffer = await response.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
+    console.log(`[process-doc] stage=fetch-done status=${response.status} bytes=${buffer.length} contentType=${contentType} t=${Date.now() - _t0}ms`);
 
     let text = '';
     // Detect PDF by content-type OR URL extension
     const isPdf = contentType.includes('application/pdf') || fileUrl.toLowerCase().includes('.pdf');
 
     if (isPdf) {
+      console.log(`[process-doc] stage=pdf-parse-start bytes=${buffer.length} t=${Date.now() - _t0}ms`);
       const data = await pdfParse(buffer);
       text = data.text;
+      console.log(`[process-doc] stage=pdf-parse-done chars=${text.length} t=${Date.now() - _t0}ms`);
     } else {
       text = buffer.toString('utf-8');
+      console.log(`[process-doc] stage=text-decode chars=${text.length} t=${Date.now() - _t0}ms`);
     }
 
     if (!text || text.trim().length === 0) {
-      await supabase.from('documents').update({ status: 'error' }).eq('id', documentId);
+      await supabase.from('documents').update({ status: 'error', error_message: 'No text extracted from file' }).eq('id', documentId);
       return NextResponse.json({ error: 'No text extracted from file' }, { status: 400 });
     }
 
     // 2. Structure-aware ingestion (Stage 3):
     //    Stage 2 parser -> bounded sections -> child chunks -> embeddings.
     //    The parser functions above are unchanged (Stage 2 is frozen).
+    console.log(`[process-doc] stage=extract-start chars=${text.length} t=${Date.now() - _t0}ms`);
     const sections = extractDocumentStructure(text);
+    console.log(`[process-doc] stage=extract-done sections=${sections.length} t=${Date.now() - _t0}ms`);
     if (sections.length === 0) {
-      await supabase.from('documents').update({ status: 'error' }).eq('id', documentId);
+      await supabase.from('documents').update({ status: 'error', error_message: 'Parser produced no sections' }).eq('id', documentId);
       return NextResponse.json({ error: 'Parser produced no sections' }, { status: 400 });
     }
 
@@ -477,11 +489,13 @@ export async function POST(req: NextRequest) {
       content: s.content,
       summary: null,
     }));
+    console.log(`[process-doc] stage=sections-insert-start rows=${sectionRows.length} t=${Date.now() - _t0}ms`);
     const { data: insertedSections, error: sectionInsertError } = await supabase
       .from('document_sections')
       .insert(sectionRows)
       .select('id');
     if (sectionInsertError) throw sectionInsertError;
+    console.log(`[process-doc] stage=sections-insert-done inserted=${insertedSections?.length ?? 0} t=${Date.now() - _t0}ms`);
 
     // 2b. Split each section into child chunks (~100 tokens, ~20 overlap),
     //     carrying the parent section_id for future parent-child retrieval.
@@ -498,7 +512,12 @@ export async function POST(req: NextRequest) {
     console.log(`[process-doc] Parsed ${sections.length} sections -> ${childChunks.length} child chunks for document ${documentId}`);
 
     // 2c. Embed child chunks in batches and insert with section_id link.
-    const batchSize = 10;
+    //     Batch size 100: the HF Inference API tolerates ≥100 concurrent
+    //     requests (verified), so larger batches cut sequential rounds from
+    //     ~38 to ~4, bringing ingestion (parse + sections + embed + insert)
+    //     comfortably under Vercel Hobby's 10s serverless limit while keeping
+    //     the identical loop/insert/error-handling structure.
+    const batchSize = 100;
     for (let i = 0; i < childChunks.length; i += batchSize) {
       const batch = childChunks.slice(i, i + batchSize);
 
@@ -529,12 +548,13 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, processedChunks: childChunks.length, sections: sections.length });
   } catch (error: any) {
-    console.error('[process-doc] Error:', error);
-    // Always try to mark the document as errored
+    console.error(`[process-doc] stage=catch doc=${documentId} t=${Date.now()} error=${error?.message ?? error}`);
+    // Always try to mark the document as errored with the actual error message
     if (documentId) {
       try {
         const supabase = createAdminClient();
-        await supabase.from('documents').update({ status: 'error' }).eq('id', documentId);
+        const errMsg = (error?.message ?? String(error)).slice(0, 500);
+        await supabase.from('documents').update({ status: 'error', error_message: errMsg }).eq('id', documentId);
       } catch (_) { }
     }
     return NextResponse.json({ error: error.message }, { status: 500 });
