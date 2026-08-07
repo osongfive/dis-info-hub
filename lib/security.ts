@@ -1,5 +1,3 @@
-import DOMPurify from "isomorphic-dompurify";
-
 /**
  * Basic text sanitization to prevent common injection characters
  */
@@ -13,8 +11,15 @@ export function sanitizeText(input: string, maxLength: number = 1000): string {
 /**
  * Standardized HTML sanitization configuration for the project.
  * Used for AI-generated content and admin descriptions.
+ *
+ * isomorphic-dompurify is lazy-loaded (require inside the function body)
+ * because its top-level require("jsdom") triggers ERR_REQUIRE_ESM at module
+ * evaluation time on Vercel: jsdom@28 → html-encoding-sniffer → @exodus/bytes
+ * is ESM-only and cannot be require()'d in CommonJS.  Routes that only need
+ * isUrlSafe / sanitizeText (e.g. /api/process-doc) must never pull in jsdom.
  */
 export function sanitizeHtml(html: string): string {
+  const DOMPurify = require("isomorphic-dompurify");
   return DOMPurify.sanitize(html, {
     ALLOWED_TAGS: [
       "p", "strong", "em", "ul", "ol", "li", "br", "span", "a", 
